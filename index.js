@@ -2,6 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const path = require('path');
 const config = require('./config');
+const cookieParser = require('cookie-parser');
 const medifarmaRoutes = require('./routes/medifarma');
 const bcpRoutes = require('./routes/bcp');
 const bbvaRoutes = require('./routes/bbva');
@@ -24,6 +25,7 @@ app.use(cors({
 // Aumentar límites para uploads
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+app.use(cookieParser());
 
 // Ruta para archivos estáticos
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
@@ -51,12 +53,31 @@ app.get('/', (req, res) => {
   res.json({ message: 'API funcionando correctamente' });
 });
 
+// Permitir archivos grandes
+app.use((req, res, next) => {
+  // Aumentar el tiempo de timeout para respuestas largas
+  res.setTimeout(5 * 60 * 1000); // 5 minutos
+  next();
+});
+
+// Servir frontend en producción
+if (process.env.NODE_ENV === 'production') {
+  // Servir archivos estáticos desde la carpeta build
+  app.use(express.static(path.join(__dirname, '../frontend/dist')));
+
+  // Para cualquier otra ruta, devolver el index.html
+  app.get('*', (req, res) => {
+    res.sendFile(path.resolve(__dirname, '../frontend/dist', 'index.html'));
+  });
+}
+
 // Manejador de errores global
 app.use((err, req, res, next) => {
   console.error('Error no controlado:', err.stack);
-  res.status(500).json({ 
-    success: false, 
-    error: 'Error interno del servidor' 
+  res.status(500).json({
+    success: false,
+    error: 'Error interno del servidor',
+    details: process.env.NODE_ENV === 'development' ? err.message : null
   });
 });
 

@@ -25,12 +25,12 @@ const storage = multer.diskStorage({
 const fileFilter = (req, file, cb) => {
   // Verificar por extensión en lugar de mimetype que puede ser inconsistente
   const ext = path.extname(file.originalname).toLowerCase();
-  const allowedExtensions = ['.xls', '.xlsx', '.csv'];
+  const allowedExtensions = ['.xls', '.xlsx', '.csv', '.dbf'];
 
   if (allowedExtensions.includes(ext)) {
     cb(null, true);
   } else {
-    cb(new Error(`Tipo de archivo no permitido. Solo se permiten archivos Excel (xls, xlsx) y CSV. Recibido: ${ext}`), false);
+    cb(new Error(`Tipo de archivo no permitido. Solo se permiten archivos Excel (xls, xlsx), CSV y DBF. Recibido: ${ext}`), false);
   }
 };
 
