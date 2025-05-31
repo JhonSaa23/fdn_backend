@@ -4,6 +4,8 @@ const path = require('path');
 const fs = require('fs');
 const { executeQuery } = require('../database');
 const { spawn } = require('child_process');
+const sql = require('mssql');
+const XLSX = require('xlsx');
 
 // Descargar archivo TXT
 router.post('/download', async (req, res) => {
@@ -190,6 +192,40 @@ router.post('/download-dbf', async (req, res) => {
     res.status(500).json({ 
       success: false, 
       error: 'Error al generar archivo DBF: ' + error.message 
+    });
+  }
+});
+
+// Exportar datos a Excel
+router.get('/:tabla', async (req, res) => {
+  try {
+    const tabla_name = req.params.tabla;
+    
+    // Obtener los datos
+    const dataResult = await executeQuery(`SELECT * FROM ${tabla_name}`);
+    
+    if (!dataResult.recordset || dataResult.recordset.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: 'No se encontraron datos para exportar'
+      });
+    }
+
+    // Obtener información de las columnas
+    const columnResult = await executeQuery(`
+      SELECT COLUMN_NAME, DATA_TYPE 
+      FROM INFORMATION_SCHEMA.COLUMNS 
+      WHERE TABLE_NAME = @tableName
+    `, {
+      tableName: tabla_name
+    });
+
+    // ... rest of the existing code ...
+  } catch (error) {
+    console.error('Error al exportar datos:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Error al exportar datos: ' + error.message
     });
   }
 });

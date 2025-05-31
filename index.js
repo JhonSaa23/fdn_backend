@@ -5,13 +5,12 @@ const config = require('./config');
 const cookieParser = require('cookie-parser');
 const medifarmaRoutes = require('./routes/medifarma');
 const bcpRoutes = require('./routes/bcp');
-const bbvaRoutes = require('./routes/bbva');
-const desclienteRoutes = require('./routes/descliente');
 const exportRoutes = require('./routes/export');
-const letrasRoutes = require('./routes/letras');
-const tipificacionesRoutes = require('./routes/tipificaciones');
 const movimientosRoutes = require('./routes/movimientos');
 const reportesRoutes = require('./routes/reportes');
+const escalasRoutes = require('./routes/escalas');
+const multiAccionRoutes = require('./routes/multiAccion');
+const { getConnection } = require('./database');
 
 const app = express();
 
@@ -40,13 +39,11 @@ if (!fs.existsSync(uploadDir)) {
 // Rutas
 app.use('/api/medifarma', medifarmaRoutes);
 app.use('/api/bcp', bcpRoutes);
-app.use('/api/bbva', bbvaRoutes);
-app.use('/api/descliente', desclienteRoutes);
 app.use('/api/export', exportRoutes);
-app.use('/api/letras', letrasRoutes);
-app.use('/api/tipificaciones', tipificacionesRoutes);
 app.use('/api/movimientos', movimientosRoutes);
 app.use('/api/reportes', reportesRoutes);
+app.use('/api/escalas', escalasRoutes);
+app.use('/api/multi-accion', multiAccionRoutes);
 
 // Ruta de prueba
 app.get('/', (req, res) => {
@@ -58,6 +55,18 @@ app.use((req, res, next) => {
   // Aumentar el tiempo de timeout para respuestas largas
   res.setTimeout(5 * 60 * 1000); // 5 minutos
   next();
+});
+
+// Endpoint de health check para verificar la conexión a la base de datos
+app.get('/api/health', async (req, res) => {
+  try {
+    const pool = await getConnection();
+    // Si llegamos aquí, la conexión está establecida
+    res.json({ connected: true, message: 'Conexión establecida' });
+  } catch (error) {
+    console.error('Error en health check:', error);
+    res.status(500).json({ connected: false, message: 'Error de conexión' });
+  }
 });
 
 // Servir frontend en producción

@@ -24,20 +24,81 @@ function formatearFecha(fecha) {
     return fechaStr;
   }
   
-  // Si es un número (tipo Excel), intentar convertirlo a fecha
+  // Si es un objeto Date o fecha ISO (2025-05-17T00:00:00.000Z)
+  if (fecha instanceof Date || (typeof fechaStr === 'string' && fechaStr.includes('T'))) {
+    try {
+      // Extraer componentes directamente del string si es posible
+      if (typeof fechaStr === 'string' && fechaStr.includes('T')) {
+        const match = fechaStr.match(/^(\d{4})-(\d{2})-(\d{2})/);
+        if (match) {
+          return `${match[1]}${match[2]}${match[3]}`;
+        }
+      }
+      
+      // Si no se pudo extraer del string, usar UTC para evitar problemas de zona horaria
+      const dateObj = fecha instanceof Date ? fecha : new Date(fecha);
+      const anio = dateObj.getUTCFullYear();
+      const mes = String(dateObj.getUTCMonth() + 1).padStart(2, '0');
+      const dia = String(dateObj.getUTCDate()).padStart(2, '0');
+      
+      return `${anio}${mes}${dia}`;
+    } catch (error) {
+      console.error('Error al procesar fecha ISO:', error);
+      return '';
+    }
+  }
+  
+  // Si es un número (tipo Excel), intentar convertirlo sin usar Date
   if (typeof fecha === 'number') {
     try {
       // Convertir número de Excel a fecha JavaScript
       // Excel usa un sistema donde 1 = 1/1/1900, 2 = 2/1/1900, etc.
       // pero hay un error en Excel que considera incorrectamente que 1900 fue bisiesto
-      const excelEpoch = new Date(1899, 11, 30);
-      const fechaObj = new Date(excelEpoch.getTime() + fecha * 86400000);
+      // Usamos el mismo algoritmo, pero sin crear objetos Date intermedios
+      const excelDateSerial = Math.floor(fecha);
       
-      const año = fechaObj.getFullYear();
-      const mes = String(fechaObj.getMonth() + 1).padStart(2, '0');
-      const dia = String(fechaObj.getDate()).padStart(2, '0');
+      // Para fechas después del 29/2/1900 (inexistente pero Excel lo considera como existente)
+      const ajuste = excelDateSerial > 60 ? 1 : 0;
+      let diasDesde1900 = excelDateSerial - ajuste;
       
-      return `${año}${mes}${dia}`;
+      // El 1/1/1900 es el día 1 en Excel, por lo que restamos 1
+      diasDesde1900--;
+      
+      // Ahora calculamos directamente año/mes/día sin usar objetos Date
+      let anio = 1900;
+      let diasRestantes = diasDesde1900;
+      
+      // Determinamos el año
+      while (diasRestantes >= 365) {
+        const esBisiesto = (anio % 4 === 0 && anio % 100 !== 0) || (anio % 400 === 0);
+        const diasEnAnio = esBisiesto ? 366 : 365;
+        
+        if (diasRestantes >= diasEnAnio) {
+          diasRestantes -= diasEnAnio;
+          anio++;
+        } else {
+          break;
+        }
+      }
+      
+      // Determinamos el mes
+      const diasPorMes = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+      const esBisiesto = (anio % 4 === 0 && anio % 100 !== 0) || (anio % 400 === 0);
+      if (esBisiesto) {
+        diasPorMes[1] = 29;
+      }
+      
+      let mes = 0;
+      while (mes < 12 && diasRestantes >= diasPorMes[mes]) {
+        diasRestantes -= diasPorMes[mes];
+        mes++;
+      }
+      
+      // Determinamos el día
+      const dia = diasRestantes + 1;
+      
+      // Formatear como YYYYMMDD
+      return `${anio}${String(mes + 1).padStart(2, '0')}${String(dia).padStart(2, '0')}`;
     } catch (error) {
       console.log('Error al convertir número Excel a fecha:', error);
       return '';
@@ -48,6 +109,7 @@ function formatearFecha(fecha) {
   if (fechaStr.includes('/')) {
     const partes = fechaStr.split('/');
     if (partes.length === 3) {
+      // Trabajar directamente con los componentes de la fecha sin usar Date
       const dia = partes[0].padStart(2, '0');
       const mes = partes[1].padStart(2, '0');
       const año = partes[2];
@@ -56,31 +118,75 @@ function formatearFecha(fecha) {
     }
   }
   
-  // Si es un objeto Date de JavaScript o tiene el formato "Wed May 14 2025..."
-  try {
-    // Intentar parsear la fecha
-    const dateObj = new Date(fecha);
-    
-    // Verificar si es una fecha válida
-    if (!isNaN(dateObj.getTime())) {
-      const año = dateObj.getFullYear();
-      const mes = String(dateObj.getMonth() + 1).padStart(2, '0'); // +1 porque los meses van de 0-11
-      const dia = String(dateObj.getDate()).padStart(2, '0');
-      
-      return `${año}${mes}${dia}`;
+  // Si la fecha tiene formato DD-MM-YYYY o YYYY-MM-DD
+  if (fechaStr.includes('-')) {
+    const partes = fechaStr.split('-');
+    if (partes.length === 3) {
+      // Verificar si el primer componente es el año (YYYY-MM-DD)
+      if (partes[0].length === 4) {
+        const año = partes[0];
+        const mes = partes[1].padStart(2, '0');
+        const dia = partes[2].padStart(2, '0');
+        return `${año}${mes}${dia}`;
+      } else {
+        // Formato DD-MM-YYYY
+        const dia = partes[0].padStart(2, '0');
+        const mes = partes[1].padStart(2, '0');
+        const año = partes[2];
+        return `${año}${mes}${dia}`;
+      }
     }
-  } catch (error) {
-    console.log('Error al parsear fecha:', error);
   }
   
-  // Si no se puede convertir, devolver una cadena vacía
+  // CASO ADICIONAL: Si es un objeto Date representado como string (como en el log)
+  // Por ejemplo: "Wed Apr 30 2025 19:00:00 GMT-0500 (hora estándar de Perú)"
+  if (fechaStr.includes('GMT')) {
+    try {
+      console.log('Procesando fecha GMT:', fechaStr);
+      // Extraer la fecha usando expresiones regulares con nueva expresión que captura mejor el formato
+      const match = fechaStr.match(/\w+\s+(\w+)\s+(\d+)\s+(\d{4})/);
+      if (match) {
+        console.log('Match encontrado:', match);
+        const mes = match[1];
+        const dia = String(match[2]).padStart(2, '0');
+        const año = match[3];
+        
+        // Mapeo de nombres de mes en inglés a números
+        const meses = {
+          'Jan': '01', 'Feb': '02', 'Mar': '03', 'Apr': '04', 'May': '05', 'Jun': '06',
+          'Jul': '07', 'Aug': '08', 'Sep': '09', 'Oct': '10', 'Nov': '11', 'Dec': '12'
+        };
+        
+        const resultado = `${año}${meses[mes]}${dia}`;
+        console.log('Fecha procesada como:', resultado);
+        return resultado;
+      } else {
+        console.log('No se pudo hacer match con regex, intentando con Date');
+      }
+      
+      // Si no pudimos extraer con regex, intentar crear un objeto Date y usar los métodos UTC
+      const dateObj = new Date(fechaStr);
+      if (!isNaN(dateObj.getTime())) {
+        const anio = dateObj.getUTCFullYear();
+        const mes = String(dateObj.getUTCMonth() + 1).padStart(2, '0');
+        const dia = String(dateObj.getUTCDate()).padStart(2, '0');
+        const resultado = `${anio}${mes}${dia}`;
+        console.log('Fecha procesada con Date.UTC:', resultado);
+        return resultado;
+      }
+    } catch (error) {
+      console.error('Error al procesar fecha con GMT:', error);
+    }
+  }
+  
+  // Si no se pudo convertir, devolver una cadena vacía
+  console.log('Formato de fecha no reconocido:', fechaStr);
   return '';
 }
 
 // Obtener todos los registros de Medifarma
 router.get('/', async (req, res) => {
   try {
-    // Modificar la consulta para obtener solo los primeros 100 registros
     const result = await executeQuery('SELECT TOP 100 * FROM Medifarma');
     res.json(result.recordset);
   } catch (error) {
@@ -110,6 +216,11 @@ router.post('/import', upload.single('file'), async (req, res) => {
       });
     }
 
+    // PRIMERO: Vaciar la tabla Medifarma para evitar duplicados
+    console.log('Vaciando tabla Medifarma antes de importar...');
+    await executeQuery('DELETE FROM Medifarma');
+    console.log('Tabla Medifarma vaciada correctamente');
+
     // Procesar según el tipo de archivo
     if (fileExtension === '.dbf' || fileExtension === '.xlsx' || fileExtension === '.xls') {
       try {
@@ -121,8 +232,8 @@ router.post('/import', upload.single('file'), async (req, res) => {
         if (fileExtension === '.dbf') {
           // Procesamiento específico para DBF
           totalRows = await procesarArchivoDBF(filePath);
-        } else {
-          // Procesamiento específico para Excel
+        } else if (fileExtension === '.xlsx' || fileExtension === '.xls') {
+          // Procesamiento específico para Excel (ahora compatible con ambos formatos)
           totalRows = await procesarArchivoExcel(filePath);
         }
         
@@ -224,13 +335,81 @@ async function procesarArchivoDBF(filePath) {
                 let fechas = '';
                 
                 if (record.FECDES) {
-                  fecdes = formatearFecha(record.FECDES);
+                  const fechaDes = String(record.FECDES);
+                  if (fechaDes.includes('/')) {
+                    const partes = fechaDes.split('/');
+                    if (partes.length === 3) {
+                      const dia = partes[0].padStart(2, '0');
+                      const mes = partes[1].padStart(2, '0');
+                      const anio = partes[2];
+                      
+                      fecdes = `${anio}${mes}${dia}`;
+                    } else {
+                      fecdes = fechaDes;
+                    }
+                  } else {
+                    fecdes = fechaDes;
+                  }
                 }
                 
                 if (record.FECHAS) {
-                  fechas = formatearFecha(record.FECHAS);
+                  const fechaHas = String(record.FECHAS);
+                  if (fechaHas.includes('/')) {
+                    const partes = fechaHas.split('/');
+                    if (partes.length === 3) {
+                      const dia = partes[0].padStart(2, '0');
+                      const mes = partes[1].padStart(2, '0');
+                      const anio = partes[2];
+                      
+                      fechas = `${anio}${mes}${dia}`;
+                    } else {
+                      fechas = fechaHas;
+                    }
+                  } else {
+                    fechas = fechaHas;
+                  }
                 }
                 
+                // Log para depuración
+                console.log(`Fecha original fecdes: ${record.FECDES}, Procesada: ${fecdes}`);
+                console.log(`Fecha original fechas: ${record.FECHAS}, Procesada: ${fechas}`);
+                
+                // Verificar que las fechas tengan el formato correcto (8 dígitos para YYYYMMDD)
+                // Si no tienen 8 dígitos, intentar procesar de nuevo con el método Date.UTC
+                if (fecdes && (!/^\d{8}$/.test(fecdes))) {
+                  console.log(`⚠️ Formato de fecha incorrecto para fecdes: ${fecdes}, intentando corregir...`);
+                  try {
+                    // Intentar convertir a fecha UTC y formatear
+                    const dateObj = new Date(record.FECDES);
+                    const anio = dateObj.getUTCFullYear();
+                    const mes = String(dateObj.getUTCMonth() + 1).padStart(2, '0');
+                    const dia = String(dateObj.getUTCDate()).padStart(2, '0');
+                    fecdes = `${anio}${mes}${dia}`;
+                    console.log(`✅ Fecha corregida: ${fecdes}`);
+                  } catch (e) {
+                    console.error(`Error corrigiendo fecdes: ${e.message}`);
+                    // Si hay error, usar un valor por defecto o vacío
+                    fecdes = '';
+                  }
+                }
+                
+                if (fechas && (!/^\d{8}$/.test(fechas))) {
+                  console.log(`⚠️ Formato de fecha incorrecto para fechas: ${fechas}, intentando corregir...`);
+                  try {
+                    // Intentar convertir a fecha UTC y formatear
+                    const dateObj = new Date(record.FECHAS);
+                    const anio = dateObj.getUTCFullYear();
+                    const mes = String(dateObj.getUTCMonth() + 1).padStart(2, '0');
+                    const dia = String(dateObj.getUTCDate()).padStart(2, '0');
+                    fechas = `${anio}${mes}${dia}`;
+                    console.log(`✅ Fecha corregida: ${fechas}`);
+                  } catch (e) {
+                    console.error(`Error corrigiendo fechas: ${e.message}`);
+                    // Si hay error, usar un valor por defecto o vacío
+                    fechas = '';
+                  }
+                }
+
                 // Normalizar campos
                 const codprom = record.CODPROM || '';
                 const desc_cab = record.DESC_CAB || '';
@@ -382,70 +561,160 @@ async function procesarArchivoExcel(filePath) {
   try {
     console.log('Procesando archivo Excel:', filePath);
     
-    // Leer archivo Excel
-    const rows = await readXlsxFile(filePath);
+    // Obtener extensión del archivo
+    const fileExtension = path.extname(filePath).toLowerCase();
     
-    // Saltar la primera fila (encabezados)
-    const dataRows = rows.slice(1);
+    // Usar ExcelJS para procesar el archivo (más compatible con diferentes formatos)
+    const ExcelJS = require('exceljs');
+    const workbook = new ExcelJS.Workbook();
     
-    console.log(`Total de filas en el archivo Excel: ${dataRows.length}`);
+    if (fileExtension === '.xlsx') {
+      await workbook.xlsx.readFile(filePath);
+    } else if (fileExtension === '.xls') {
+      await workbook.xls.readFile(filePath);
+    } else {
+      throw new Error('Formato de archivo no soportado. Use archivos .xlsx o .xls');
+    }
+    
+    const worksheet = workbook.getWorksheet(1); // Primera hoja
+    const rows = [];
+    
+    // Extraer todas las filas (excluyendo encabezados)
+    worksheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {
+      if (rowNumber > 1) { // Excluir la primera fila (encabezados)
+        rows.push(row.values);
+      }
+    });
+    
+    console.log(`Total de filas en el archivo Excel: ${rows.length}`);
+    
+    // IMPORTANTE: crear una ÚNICA conexión para todos los registros
+    const pool = await require('../database').connectDB();
+    console.log('Conexión a base de datos establecida para importación Excel');
     
     let processedCount = 0;
     
     // Procesar cada fila
-    for (const row of dataRows) {
-      const codprom = row[0];
-      const desc_cab = row[1];
+    for (const row of rows) {
+      const codprom = row[1] || '';
+      const desc_cab = row[2] || '';
       const canal = ''; // Vaciar columna canal como solicitado
-      const fecdesOriginal = row[3];
-      const fechasOriginal = row[4];
-      // Formatear fechas al formato YYYYMMDD
-      const fecdes = formatearFecha(fecdesOriginal);
-      const fechas = formatearFecha(fechasOriginal);
-      const codoferta = zeroFill(row[5], 3);
-      const desc_det = row[6];
+      
+      // Procesamiento directo de fechas sin usar objetos Date
+      // Obtenemos los valores originales de las fechas
+      const fecdesOriginal = row[4];
+      const fechasOriginal = row[5];
+      
+      // Manejar fechas directamente si son objetos Date
+      let fecdes = '';
+      let fechas = '';
+      
+      if (fecdesOriginal instanceof Date) {
+        // Si es un objeto Date, extraer componentes directamente
+        const anio = fecdesOriginal.getUTCFullYear();
+        const mes = String(fecdesOriginal.getUTCMonth() + 1).padStart(2, '0');
+        const dia = String(fecdesOriginal.getUTCDate()).padStart(2, '0');
+        fecdes = `${anio}${mes}${dia}`;
+      } else {
+        // Si no es Date, usar la función formatearFecha
+        fecdes = formatearFecha(fecdesOriginal);
+      }
+      
+      if (fechasOriginal instanceof Date) {
+        // Si es un objeto Date, extraer componentes directamente
+        const anio = fechasOriginal.getUTCFullYear();
+        const mes = String(fechasOriginal.getUTCMonth() + 1).padStart(2, '0');
+        const dia = String(fechasOriginal.getUTCDate()).padStart(2, '0');
+        fechas = `${anio}${mes}${dia}`;
+      } else {
+        // Si no es Date, usar la función formatearFecha
+        fechas = formatearFecha(fechasOriginal);
+      }
+      
+      // Log para depuración
+      console.log(`Fecha original fecdes: ${fecdesOriginal}, Procesada: ${fecdes}`);
+      console.log(`Fecha original fechas: ${fechasOriginal}, Procesada: ${fechas}`);
+      
+      // Verificar que las fechas tengan el formato correcto (8 dígitos para YYYYMMDD)
+      // Si no tienen 8 dígitos, intentar procesar de nuevo con el método Date.UTC
+      if (fecdes && (!/^\d{8}$/.test(fecdes))) {
+        console.log(`⚠️ Formato de fecha incorrecto para fecdes: ${fecdes}, intentando corregir...`);
+        try {
+          // Intentar convertir a fecha UTC y formatear
+          const dateObj = new Date(fecdesOriginal);
+          const anio = dateObj.getUTCFullYear();
+          const mes = String(dateObj.getUTCMonth() + 1).padStart(2, '0');
+          const dia = String(dateObj.getUTCDate()).padStart(2, '0');
+          fecdes = `${anio}${mes}${dia}`;
+          console.log(`✅ Fecha corregida: ${fecdes}`);
+        } catch (e) {
+          console.error(`Error corrigiendo fecdes: ${e.message}`);
+          // Si hay error, usar un valor por defecto o vacío
+          fecdes = '';
+        }
+      }
+      
+      if (fechas && (!/^\d{8}$/.test(fechas))) {
+        console.log(`⚠️ Formato de fecha incorrecto para fechas: ${fechas}, intentando corregir...`);
+        try {
+          // Intentar convertir a fecha UTC y formatear
+          const dateObj = new Date(fechasOriginal);
+          const anio = dateObj.getUTCFullYear();
+          const mes = String(dateObj.getUTCMonth() + 1).padStart(2, '0');
+          const dia = String(dateObj.getUTCDate()).padStart(2, '0');
+          fechas = `${anio}${mes}${dia}`;
+          console.log(`✅ Fecha corregida: ${fechas}`);
+        } catch (e) {
+          console.error(`Error corrigiendo fechas: ${e.message}`);
+          // Si hay error, usar un valor por defecto o vacío
+          fechas = '';
+        }
+      }
+
+      const codoferta = zeroFill(row[6] || '', 3);
+      const desc_det = row[7] || '';
       const ciudad = '0'; // Establecer "0" en ciudades como solicitado
-      const paquete = row[8];
-      const sol_com = row[9];
-      const descto = parseFloat(row[10] || 0);
-      const topeval = parseFloat(row[11] || 0);
-      const flg_tip = row[12];
-      const val_basi = parseFloat(row[13] || 0);
-      const codprod = String(row[14] || '');
-      const descrip = row[15];
-      const desde_la = parseFloat(row[16] || 0);
-      const desde_und = parseFloat(row[17] || 0);
-      const hasta_und = parseFloat(row[18] || 0);
-      const porcen = parseFloat(row[19] || 0);
-      const dsct_mif = parseFloat(row[20] || 0);
-      const dsct_prv = parseFloat(row[21] || 0);
-      const ind_uni = row[22];
-      const cod_bon = row[23] ? String(row[23]) : null;
-      const can_bon = parseFloat(row[24] || 0);
-      const descri = row[25];
-      const ind_uni1 = row[26];
-      const cod_bo1 = row[27] ? String(row[27]) : null;
-      const can_bo1 = parseFloat(row[28] || 0);
-      const ind_uni2 = row[29];
-      const cod_bo2 = row[30] ? String(row[30]) : null;
-      const can_bo2 = parseFloat(row[31] || 0);
-      const ind_uni3 = row[32];
-      const cod_bo3 = row[33] ? String(row[33]) : null;
-      const can_bo3 = parseFloat(row[34] || 0);
-      const ind_uni4 = row[35];
-      const cod_bo4 = row[36] ? String(row[36]) : null;
-      const can_bo4 = parseFloat(row[37] || 0);
-      const ind_uni5 = row[38];
-      const cod_bo5 = row[39] ? String(row[39]) : null;
-      const can_bo5 = parseFloat(row[40] || 0);
-      const multiplo = parseFloat(row[41] || 0);
-      const pasa = row[42];
-      const des_bo1 = parseFloat(row[43] || 0);
-      const des_bo2 = parseFloat(row[44] || 0);
-      const des_bo3 = parseFloat(row[45] || 0);
-      const des_bo4 = parseFloat(row[46] || 0);
-      const des_bo5 = parseFloat(row[47] || 0);
-      const campana = row[48];
+      const paquete = row[9] || '';
+      const sol_com = row[10] || '';
+      const descto = parseFloat(row[11] || 0);
+      const topeval = parseFloat(row[12] || 0);
+      const flg_tip = row[13] || '';
+      const val_basi = parseFloat(row[14] || 0);
+      const codprod = String(row[15] || '');
+      const descrip = row[16] || '';
+      const desde_la = parseFloat(row[17] || 0);
+      const desde_und = parseFloat(row[18] || 0);
+      const hasta_und = parseFloat(row[19] || 0);
+      const porcen = parseFloat(row[20] || 0);
+      const dsct_mif = parseFloat(row[21] || 0);
+      const dsct_prv = parseFloat(row[22] || 0);
+      const ind_uni = row[23] || '';
+      const cod_bon = row[24] ? String(row[24]) : null;
+      const can_bon = parseFloat(row[25] || 0);
+      const descri = row[26] || '';
+      const ind_uni1 = row[27] || '';
+      const cod_bo1 = row[28] ? String(row[28]) : null;
+      const can_bo1 = parseFloat(row[29] || 0);
+      const ind_uni2 = row[30] || '';
+      const cod_bo2 = row[31] ? String(row[31]) : null;
+      const can_bo2 = parseFloat(row[32] || 0);
+      const ind_uni3 = row[33] || '';
+      const cod_bo3 = row[34] ? String(row[34]) : null;
+      const can_bo3 = parseFloat(row[35] || 0);
+      const ind_uni4 = row[36] || '';
+      const cod_bo4 = row[37] ? String(row[37]) : null;
+      const can_bo4 = parseFloat(row[38] || 0);
+      const ind_uni5 = row[39] || '';
+      const cod_bo5 = row[40] ? String(row[40]) : null;
+      const can_bo5 = parseFloat(row[41] || 0);
+      const multiplo = parseFloat(row[42] || 0);
+      const pasa = row[43] || ''; // Asegurar que pasa nunca sea NULL
+      const des_bo1 = parseFloat(row[44] || 0);
+      const des_bo2 = parseFloat(row[45] || 0);
+      const des_bo3 = parseFloat(row[46] || 0);
+      const des_bo4 = parseFloat(row[47] || 0);
+      const des_bo5 = parseFloat(row[48] || 0);
+      const campana = row[49] || '';
       
       // Insertar en la base de datos
       const query = `
@@ -470,7 +739,7 @@ async function procesarArchivoExcel(filePath) {
         )
       `;
       
-      const pool = await require('../database').connectDB();
+      // IMPORTANTE: Usar la conexión ya creada en lugar de crear una nueva
       const request = pool.request();
       
       // Agregar parámetros a la consulta
@@ -544,37 +813,21 @@ async function procesarArchivoExcel(filePath) {
 router.delete('/clear', async (req, res) => {
   try {
     await executeQuery('DELETE FROM Medifarma');
-    res.json({ 
-      success: true, 
-      message: 'Tabla Medifarma vaciada correctamente'
-    });
+    res.json({ success: true, message: 'Tabla Medifarma vaciada correctamente' });
   } catch (error) {
-    console.error('Error al vaciar tabla:', error);
-    res.status(500).json({ 
-      success: false, 
-      error: 'Error al vaciar tabla: ' + error.message 
-    });
+    console.error('Error al vaciar tabla Medifarma:', error);
+    res.status(500).json({ success: false, error: 'Error al vaciar tabla' });
   }
 });
 
-// Subir a tabla de producción MedifarmaProd
+// Subir a producción
 router.post('/upload-to-prod', async (req, res) => {
   try {
-    await executeQuery(`
-      INSERT INTO MedifarmaProd
-      SELECT * FROM Medifarma
-    `);
-    
-    res.json({ 
-      success: true, 
-      message: 'Datos subidos a MedifarmaProd correctamente'
-    });
+    await executeQuery('EXEC sp_Medifarma_importa2');
+    res.json({ success: true, message: 'Datos subidos a producción correctamente' });
   } catch (error) {
     console.error('Error al subir a producción:', error);
-    res.status(500).json({ 
-      success: false, 
-      error: 'Error al subir a producción: ' + error.message 
-    });
+    res.status(500).json({ success: false, error: 'Error al subir a producción' });
   }
 });
 
@@ -992,3 +1245,5 @@ router.post('/upload', async (req, res) => {
 });
 
 module.exports = router; 
+// Exportar la función formatearFecha para pruebas
+module.exports.formatearFecha = formatearFecha; 
