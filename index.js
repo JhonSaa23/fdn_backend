@@ -16,7 +16,7 @@ const app = express();
 
 // Configuración CORS
 app.use(cors({
-  origin: ['http://localhost:5173', 'https://fba4-38-25-50-104.ngrok-free.app'],
+  origin: ['http://localhost:5173', 'https://fba4-38-25-50-104.ngrok-free.app', 'https://fdn.onrender.com'],
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'ngrok-skip-browser-warning'],
   credentials: true
