@@ -5,3 +5,12 @@
 /logs
 /temp
 /uploads
+/uploads/*
+/uploads/
+/uploads/
+/uploads/
+/uploads/
+/uploads/
+.env
+.env.development
+.env.production
