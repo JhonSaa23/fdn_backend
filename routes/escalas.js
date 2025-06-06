@@ -26,33 +26,40 @@ router.get('/', async (req, res) => {
           ON t.tipificacion = d.Tipificacion
          AND t.codpro        = d.Codpro
          AND t.[desde]       = d.[Desde]
-         AND t.porcentaje    = d.Porcentaje
+         AND t.porcentaje    = d.[Porcentaje]
       )
-      SELECT *
-      FROM vw_EscalasProducto
+      SELECT
+        v.tipificacion,
+        v.codpro,
+        p.Nombre AS nombreProducto,
+        v.[desde],
+        v.porcentaje,
+        v.en_t,
+        v.en_d
+      FROM vw_EscalasProducto AS v
+      INNER JOIN Productos AS p
+        ON LTRIM(RTRIM(v.codpro)) = LTRIM(RTRIM(p.CodPro))
       WHERE 1=1
     `;
 
     const params = {};
-
     if (tipificacion) {
-      query += ' AND tipificacion = @tipificacion';
+      query += ' AND v.tipificacion = @tipificacion';
       params.tipificacion = ensureString(tipificacion);
     }
     if (codpro) {
-      query += ' AND codpro = @codpro';
+      query += ' AND v.codpro = @codpro';
       params.codpro = ensureString(codpro);
     }
     if (desde) {
-      query += ' AND [desde] = @desde';
+      query += ' AND v.[desde] = @desde';
       params.desde = parseFloat(desde);
     }
     if (porcentaje) {
-      query += ' AND porcentaje = @porcentaje';
+      query += ' AND v.porcentaje = @porcentaje';
       params.porcentaje = parseFloat(porcentaje);
     }
-
-    query += ' ORDER BY tipificacion, codpro, [desde]';
+    query += ' ORDER BY v.tipificacion, v.codpro, v.[desde]';
 
     const result = await executeQuery(query, params);
     res.json(result.recordset);
@@ -65,7 +72,22 @@ router.get('/', async (req, res) => {
   }
 });
 
-
+// Endpoint para obtener la lista de negocios
+router.get('/negocios', (req, res) => {
+  const negocios = [
+    { codlab: '01', numero: 1, descripcion: 'Farmacia Independiente' },
+    { codlab: '01', numero: 2, descripcion: 'Mayorista' },
+    { codlab: '01', numero: 3, descripcion: 'Minicadenas' },
+    { codlab: '01', numero: 4, descripcion: 'Sub-Distribuidores' },
+    { codlab: '01', numero: 5, descripcion: 'Institución' },
+    { codlab: '49', numero: 6, descripcion: 'Cadena Regional' },
+    { codlab: '49', numero: 7, descripcion: 'Farmacias Regulares' },
+    { codlab: '49', numero: 8, descripcion: 'Clinicas' },
+    { codlab: '49', numero: 9, descripcion: 'Mayorista' },
+    { codlab: '49', numero: 10, descripcion: 'Farmacias Tops' }
+  ];
+  res.json(negocios);
+});
 
 // ===== POST: crear nueva escala (sin error PK) =====
 router.post('/', async (req, res) => {

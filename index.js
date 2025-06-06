@@ -1,7 +1,7 @@
+require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
-const config = require('./config');
 const cookieParser = require('cookie-parser');
 const medifarmaRoutes = require('./routes/medifarma');
 const bcpRoutes = require('./routes/bcp');
@@ -16,9 +16,10 @@ const app = express();
 
 // Configuración CORS
 app.use(cors({
-  origin: '*', // Permitir cualquier origen en desarrollo
+  origin: ['http://localhost:5173', 'https://fba4-38-25-50-104.ngrok-free.app'],
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
+  allowedHeaders: ['Content-Type', 'Authorization', 'ngrok-skip-browser-warning'],
+  credentials: true
 }));
 
 // Aumentar límites para uploads
@@ -91,7 +92,7 @@ app.use((err, req, res, next) => {
 });
 
 // Iniciar servidor
-const PORT = config.port || 3001;
+const PORT = process.env.PORT;
 app.listen(PORT, () => {
   console.log(`Servidor corriendo en el puerto ${PORT}`);
 }); 

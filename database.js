@@ -1,13 +1,22 @@
 const sql = require('mssql');
-const config = require('./config');
 
 // Configuración del pool de conexiones
 const poolConfig = {
-    ...config.dbConfig,
+    server: process.env.DB_SERVER,
+    database: process.env.DB_DATABASE,
+    user: process.env.DB_USER,
+    password: process.env.DB_PASSWORD,
+    options: {
+        encrypt: process.env.DB_ENCRYPT === 'true',
+        enableArithAbort: process.env.DB_ENABLE_ARITH_ABORT === 'true',
+        trustServerCertificate: process.env.DB_TRUST_SERVER_CERTIFICATE === 'true',
+        connectTimeout: parseInt(process.env.DB_CONNECT_TIMEOUT) || 30000,
+        requestTimeout: parseInt(process.env.DB_REQUEST_TIMEOUT) || 30000
+    },
     pool: {
-        max: 10,
-        min: 0,
-        idleTimeoutMillis: 30000,
+        max: parseInt(process.env.DB_POOL_MAX) || 10,
+        min: parseInt(process.env.DB_POOL_MIN) || 0,
+        idleTimeoutMillis: parseInt(process.env.DB_POOL_IDLE_TIMEOUT) || 30000,
         acquireTimeoutMillis: 30000
     }
 };

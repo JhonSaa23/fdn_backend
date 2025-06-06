@@ -1,0 +1,4 @@
+# Ignorar todo lo que normalmente se ignora, excepto .env
+!*.env.development
+!*.env.production
+!*.env

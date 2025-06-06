@@ -321,7 +321,7 @@ async function procesarArchivoDBF(filePath) {
             const batchRecords = records.slice(startIdx, endIdx);
             
             // Crear un pool de conexión por lote
-            const pool = await require('../database').connectDB();
+            const pool = await require('../database').getConnection();
             
             try {
               // Procesar cada registro en el lote actual
@@ -589,7 +589,7 @@ async function procesarArchivoExcel(filePath) {
     console.log(`Total de filas en el archivo Excel: ${rows.length}`);
     
     // IMPORTANTE: crear una ÚNICA conexión para todos los registros
-    const pool = await require('../database').connectDB();
+    const pool = await require('../database').getConnection();
     console.log('Conexión a base de datos establecida para importación Excel');
     
     let processedCount = 0;
@@ -1039,7 +1039,7 @@ router.post('/upload', async (req, res) => {
     const worksheet = workbook.getWorksheet(1); // Primera hoja
     
     // Establecer una única conexión antes de iterar (mejor rendimiento)
-    const pool = await require('../database').connectDB();
+    const pool = await require('../database').getConnection();
     
     // Preparar la consulta una sola vez (mejor rendimiento)
     const query = `

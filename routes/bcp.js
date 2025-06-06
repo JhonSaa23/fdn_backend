@@ -6,9 +6,10 @@ const { executeQuery } = require('../database');
 const { upload } = require('../utils/fileHandler');
 const fs = require('fs');
 const sql = require('mssql');
-const config = require('../config');
 const ExcelJS = require('exceljs'); // Importar ExcelJS a nivel de módulo
 const XLSX = require('xlsx'); // Importar la biblioteca SheetJS/xlsx
+
+const CLOSE_CONNECTION = process.env.CLOSE_CONNECTION !== 'false';
 
 // Función para rellenar con ceros a la izquierda (similar a zero_fill en PHP)
 function zeroFill(value, length = 0) {
@@ -194,7 +195,6 @@ router.get('/', async (req, res) => {
 // Importar archivo Excel de BCP
 router.post('/import', upload.single('file'), async (req, res) => {
   let pool = null;
-  const CLOSE_CONNECTION = process.env.CLOSE_CONNECTION !== 'false'; // Por defecto cerrar la conexión
   
   try {
     // Verificar que se haya subido un archivo
@@ -307,7 +307,25 @@ router.post('/import', upload.single('file'), async (req, res) => {
       const dataRows = rows.slice(1);
       
       // Crear una conexión a la base de datos que podamos reutilizar
-      pool = await sql.connect(config.dbConfig);
+      pool = await sql.connect({
+        server: process.env.DB_SERVER,
+        database: process.env.DB_DATABASE,
+        user: process.env.DB_USER,
+        password: process.env.DB_PASSWORD,
+        options: {
+          encrypt: process.env.DB_ENCRYPT === 'true',
+          enableArithAbort: process.env.DB_ENABLE_ARITH_ABORT === 'true',
+          trustServerCertificate: process.env.DB_TRUST_SERVER_CERTIFICATE === 'true',
+          connectTimeout: parseInt(process.env.DB_CONNECT_TIMEOUT) || 30000,
+          requestTimeout: parseInt(process.env.DB_REQUEST_TIMEOUT) || 30000
+        },
+        pool: {
+          max: parseInt(process.env.DB_POOL_MAX) || 10,
+          min: parseInt(process.env.DB_POOL_MIN) || 0,
+          idleTimeoutMillis: parseInt(process.env.DB_POOL_IDLE_TIMEOUT) || 30000,
+          acquireTimeoutMillis: 30000
+        }
+      });
       console.log('Conexión a base de datos establecida');
       
       let processedCount = 0;
