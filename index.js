@@ -8,8 +8,9 @@ const bcpRoutes = require('./routes/bcp');
 const exportRoutes = require('./routes/export');
 const movimientosRoutes = require('./routes/movimientos');
 const reportesRoutes = require('./routes/reportes');
-const escalasRoutes = require('./routes/escalas');
+const promocionesRoutes = require('./routes/promociones');
 const multiAccionRoutes = require('./routes/multiAccion');
+const escalasRoutes = require('./routes/escalas');
 const { getConnection } = require('./database');
 
 const app = express();
@@ -43,8 +44,9 @@ app.use('/api/bcp', bcpRoutes);
 app.use('/api/export', exportRoutes);
 app.use('/api/movimientos', movimientosRoutes);
 app.use('/api/reportes', reportesRoutes);
-app.use('/api/escalas', escalasRoutes);
+app.use('/api/promociones', promocionesRoutes);
 app.use('/api/multi-accion', multiAccionRoutes);
+app.use('/api/escalas', escalasRoutes);
 
 // Ruta de prueba
 app.get('/', (req, res) => {
@@ -58,17 +60,7 @@ app.use((req, res, next) => {
   next();
 });
 
-// Endpoint de health check para verificar la conexión a la base de datos
-app.get('/api/health', async (req, res) => {
-  try {
-    const pool = await getConnection();
-    // Si llegamos aquí, la conexión está establecida
-    res.json({ connected: true, message: 'Conexión establecida' });
-  } catch (error) {
-    console.error('Error en health check:', error);
-    res.status(500).json({ connected: false, message: 'Error de conexión' });
-  }
-});
+
 
 // Servir frontend en producción
 if (process.env.NODE_ENV === 'production') {

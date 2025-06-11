@@ -239,10 +239,8 @@ router.post('/import', upload.single('file'), async (req, res) => {
         
         console.log(`Archivo procesado correctamente. Total filas procesadas: ${totalRows}`);
         
-        // Ejecutar el procedimiento almacenado para completar el procesamiento
-        console.log('Ejecutando procedimiento almacenado sp_Medifarma_importa2...');
-        await executeQuery("EXEC sp_Medifarma_importa2");
-        console.log('Procedimiento almacenado ejecutado con éxito');
+        // NO ejecutar el procedimiento almacenado aquí - solo cargar datos a la tabla para verificación
+        console.log('Datos cargados en tabla Medifarma para verificación');
         
         // Elimina el archivo temporal después de procesarlo
         try {
@@ -254,7 +252,7 @@ router.post('/import', upload.single('file'), async (req, res) => {
         
         return res.json({ 
           success: true, 
-          message: `Archivo importado correctamente. Total filas: ${totalRows}`,
+          message: `Archivo procesado correctamente. Total filas: ${totalRows}. Use el botón 'Subir' para enviar a producción.`,
           totalRows: totalRows
         });
           

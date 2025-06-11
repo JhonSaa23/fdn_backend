@@ -1,27 +1,28 @@
 const express = require('express');
 const router = express.Router();
-const { getConnection, sql } = require('../database');
+const { executeQuery } = require('../database');
 
 // Buscar pedido
 router.get('/pedido/:numero', async (req, res) => {
   try {
-    const pool = await getConnection();
-    const result = await pool.request()
-      .input('numero', sql.VarChar, req.params.numero)
-      .query(`
-        SELECT 
-          Numero,
-          Laboratorio,
-          FechaPed,
-          FechaRec,
-          FechaAnt,
-          CAST(Validado AS INT) as Validado,
-          CAST(Eliminado AS INT) as Eliminado,
-          Observaciones,
-          Proveedor
-        FROM Pedido 
-        WHERE Numero = @numero
-      `);
+    const numeroLimpio = req.params.numero.trim();
+    
+    const query = `
+      SELECT 
+        Numero,
+        Laboratorio,
+        FechaPed,
+        FechaRec,
+        FechaAnt,
+        CAST(Validado AS INT) as Validado,
+        CAST(Eliminado AS INT) as Eliminado,
+        Observaciones,
+        Proveedor
+      FROM Pedido 
+      WHERE Numero = @numero
+    `;
+
+    const result = await executeQuery(query, { numero: numeroLimpio });
 
     if (result.recordset.length > 0) {
       // Asegurarnos de que los campos sean números
@@ -43,12 +44,11 @@ router.get('/pedido/:numero', async (req, res) => {
 // Invalidar pedido
 router.post('/pedido/:numero/invalidar', async (req, res) => {
   try {
-    const pool = await getConnection();
+    const numeroLimpio = req.params.numero.trim();
     
     // Primero verificamos que el pedido exista y esté validado
-    const checkResult = await pool.request()
-      .input('numero', sql.VarChar, req.params.numero)
-      .query('SELECT CAST(Validado AS INT) as Validado FROM Pedido WHERE Numero = @numero');
+    const checkQuery = 'SELECT CAST(Validado AS INT) as Validado FROM Pedido WHERE Numero = @numero';
+    const checkResult = await executeQuery(checkQuery, { numero: numeroLimpio });
 
     if (checkResult.recordset.length === 0) {
       return res.status(404).json({ message: 'Pedido no encontrado' });
@@ -60,9 +60,8 @@ router.post('/pedido/:numero/invalidar', async (req, res) => {
     }
 
     // Si todo está bien, procedemos a invalidar
-    const result = await pool.request()
-      .input('numero', sql.VarChar, req.params.numero)
-      .query('UPDATE Pedido SET Validado = 0 WHERE Numero = @numero');
+    const updateQuery = 'UPDATE Pedido SET Validado = 0 WHERE Numero = @numero';
+    const result = await executeQuery(updateQuery, { numero: numeroLimpio });
 
     if (result.rowsAffected[0] > 0) {
       res.json({ message: 'Pedido invalidado correctamente' });
@@ -78,10 +77,10 @@ router.post('/pedido/:numero/invalidar', async (req, res) => {
 // Buscar guía
 router.get('/guia/:numero', async (req, res) => {
   try {
-    const pool = await getConnection();
-    const result = await pool.request()
-      .input('numero', sql.VarChar, req.params.numero)
-      .query('select * from DoccabGuia where Numero = @numero');
+    const numeroLimpio = req.params.numero.trim();
+    
+    const query = 'SELECT * FROM DoccabGuia WHERE Numero = @numero';
+    const result = await executeQuery(query, { numero: numeroLimpio });
 
     if (result.recordset.length > 0) {
       res.json(result.recordset[0]);
@@ -97,10 +96,10 @@ router.get('/guia/:numero', async (req, res) => {
 // Reusar guía
 router.post('/guia/:numero/reusar', async (req, res) => {
   try {
-    const pool = await getConnection();
-    const result = await pool.request()
-      .input('numero', sql.VarChar, req.params.numero)
-      .query('delete from DoccabGuia where Numero = @numero');
+    const numeroLimpio = req.params.numero.trim();
+    
+    const query = 'DELETE FROM DoccabGuia WHERE Numero = @numero';
+    const result = await executeQuery(query, { numero: numeroLimpio });
 
     if (result.rowsAffected[0] > 0) {
       res.json({ message: 'Guía reusada correctamente' });
@@ -116,10 +115,14 @@ router.post('/guia/:numero/reusar', async (req, res) => {
 // Autorizar código
 router.post('/autorizar', async (req, res) => {
   try {
-    const pool = await getConnection();
-    const result = await pool.request()
-      .input('codigo', sql.VarChar, req.body.codigo)
-      .query('insert into PRODBOLETA values (@codigo)');
+    const codigoLimpio = req.body.codigo?.trim();
+    
+    if (!codigoLimpio) {
+      return res.status(400).json({ message: 'Código requerido' });
+    }
+    
+    const query = 'INSERT INTO PRODBOLETA VALUES (@codigo)';
+    await executeQuery(query, { codigo: codigoLimpio });
 
     res.json({ message: 'Código autorizado correctamente' });
   } catch (error) {

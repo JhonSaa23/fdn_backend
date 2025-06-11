@@ -1,285 +1,173 @@
-// routes/escalas.js
 const express = require('express');
 const router = express.Router();
-const { executeQuery, sql } = require('../database');
+const { executeQuery } = require('../database');
 
-// Función auxiliar para asegurar que un valor sea string y aplicar trim
-const ensureString = (value) => {
-  return value != null ? String(value).trim() : '';
-};
-// ===== GET: obtener todas las escalas con filtros dinámicos =====
-router.get('/', async (req, res) => {
+// Obtener laboratorios únicos para el filtro
+router.get('/laboratorios', async (req, res) => {
   try {
-    const { tipificacion, codpro, desde, porcentaje } = req.query;
-
-    let query = `
-      WITH vw_EscalasProducto AS (
-        SELECT 
-          COALESCE(t.tipificacion, d.Tipificacion) AS tipificacion,
-          COALESCE(t.codpro,        d.Codpro)       AS codpro,
-          COALESCE(t.[desde],       d.[Desde])      AS [desde],
-          COALESCE(t.porcentaje,    d.Porcentaje)   AS porcentaje,
-          CASE WHEN t.tipificacion IS NOT NULL THEN 1 ELSE 0 END AS en_t,
-          CASE WHEN d.Tipificacion IS NOT NULL THEN 1 ELSE 0 END AS en_d
-        FROM t_Descuento_laboratorio AS t
-        FULL OUTER JOIN Descuento_laboratorio AS d
-          ON t.tipificacion = d.Tipificacion
-         AND t.codpro        = d.Codpro
-         AND t.[desde]       = d.[Desde]
-         AND t.porcentaje    = d.[Porcentaje]
-      )
-      SELECT
-        v.tipificacion,
-        v.codpro,
-        p.Nombre AS nombreProducto,
-        v.[desde],
-        v.porcentaje,
-        v.en_t,
-        v.en_d
-      FROM vw_EscalasProducto AS v
-      INNER JOIN Productos AS p
-        ON LTRIM(RTRIM(v.codpro)) = LTRIM(RTRIM(p.CodPro))
-      WHERE 1=1
+    const query = `
+      SELECT DISTINCT l.CodLab, l.Descripcion
+      FROM dbo.Laboratorios AS l
+      INNER JOIN dbo.Escalas AS e ON RTRIM(l.CodLab) = LEFT(e.CodPro, 2)
+      ORDER BY l.Descripcion
     `;
-
-    const params = {};
-    if (tipificacion) {
-      query += ' AND v.tipificacion = @tipificacion';
-      params.tipificacion = ensureString(tipificacion);
-    }
-    if (codpro) {
-      query += ' AND v.codpro = @codpro';
-      params.codpro = ensureString(codpro);
-    }
-    if (desde) {
-      query += ' AND v.[desde] = @desde';
-      params.desde = parseFloat(desde);
-    }
-    if (porcentaje) {
-      query += ' AND v.porcentaje = @porcentaje';
-      params.porcentaje = parseFloat(porcentaje);
-    }
-    query += ' ORDER BY v.tipificacion, v.codpro, v.[desde]';
-
-    const result = await executeQuery(query, params);
+    const result = await executeQuery(query);
     res.json(result.recordset);
   } catch (error) {
-    console.error('Error al obtener escalas:', error);
-    res.status(500).json({
-      error: 'Error al obtener las escalas',
-      details: error.message
-    });
+    console.error('Error al obtener laboratorios:', error);
+    res.status(500).json({ error: 'Error al obtener laboratorios' });
   }
 });
 
-// Endpoint para obtener la lista de negocios
-router.get('/negocios', (req, res) => {
-  const negocios = [
-    { codlab: '01', numero: 1, descripcion: 'Farmacia Independiente' },
-    { codlab: '01', numero: 2, descripcion: 'Mayorista' },
-    { codlab: '01', numero: 3, descripcion: 'Minicadenas' },
-    { codlab: '01', numero: 4, descripcion: 'Sub-Distribuidores' },
-    { codlab: '01', numero: 5, descripcion: 'Institución' },
-    { codlab: '49', numero: 6, descripcion: 'Cadena Regional' },
-    { codlab: '49', numero: 7, descripcion: 'Farmacias Regulares' },
-    { codlab: '49', numero: 8, descripcion: 'Clinicas' },
-    { codlab: '49', numero: 9, descripcion: 'Mayorista' },
-    { codlab: '49', numero: 10, descripcion: 'Farmacias Tops' }
-  ];
-  res.json(negocios);
-});
-
-// ===== POST: crear nueva escala (sin error PK) =====
-router.post('/', async (req, res) => {
+// Consultar escalas con filtros
+router.get('/', async (req, res) => {
   try {
-    const { tipificacion, codpro, desde, porcentaje } = req.body;
-
-    // 1) Validación de presencia
-    if (tipificacion == null || codpro == null || desde == null || porcentaje == null) {
-      return res.status(400).json({
-        error: 'Datos incompletos',
-        details: 'tipificacion, codpro, desde y porcentaje son requeridos'
-      });
+    const { laboratorio, codpro, nombreProducto } = req.query;
+    
+    let whereConditions = [];
+    let parameters = {};
+    
+    // Limpiar y validar parámetros
+    if (laboratorio && laboratorio.trim() !== '') {
+      whereConditions.push('l.CodLab = @laboratorio');
+      parameters.laboratorio = laboratorio.trim();
     }
-
-    // 2) Normalizo/parseo
-    const tip = ensureString(tipificacion);
-    const cod = ensureString(codpro);
-    const des = parseFloat(desde);
-    const por = parseFloat(porcentaje);
-    if (isNaN(des) || isNaN(por)) {
-      return res.status(400).json({
-        error: 'Datos inválidos',
-        details: '"desde" y "porcentaje" deben ser números válidos'
-      });
+    
+    if (codpro && codpro.trim() !== '') {
+      whereConditions.push('e.CodPro LIKE @codpro');
+      parameters.codpro = `%${codpro.trim()}%`;
     }
-
-    // 3) Compruebo existencia en tabla TEMPORAL
-    const checkTemp = await executeQuery(
-      `SELECT 1 AS existe
-         FROM t_Descuento_laboratorio
-        WHERE tipificacion = @tip
-          AND LTRIM(RTRIM(codpro)) = @cod
-          AND [desde] = @des
-          AND porcentaje = @por`,
-      { tip, cod, des, por }
-    );
-
-    // 4) Compruebo existencia en tabla PRINCIPAL
-    const checkMain = await executeQuery(
-      `SELECT 1 AS existe
-         FROM Descuento_laboratorio
-        WHERE Tipificacion = @tip
-          AND LTRIM(RTRIM(Codpro)) = @cod
-          AND [Desde] = @des
-          AND Porcentaje = @por`,
-      { tip, cod, des, por }
-    );
-
-    // 5) Inserto donde falte, sin riesgo de PK duplicada
-    const tablas = [];
-
-    if (checkTemp.recordset.length === 0) {
-      await executeQuery(
-        `INSERT INTO t_Descuento_laboratorio
-           (tipificacion, codpro, [desde], porcentaje)
-         VALUES (@tip, @cod, @des, @por)`,
-        { tip, cod, des, por }
-      );
-      tablas.push('temporal');
+    
+    if (nombreProducto && nombreProducto.trim() !== '') {
+      whereConditions.push('p.Nombre LIKE @nombreProducto');
+      parameters.nombreProducto = `%${nombreProducto.trim()}%`;
     }
-
-    if (checkMain.recordset.length === 0) {
-      await executeQuery(
-        `INSERT INTO Descuento_laboratorio
-           (Documento, Tipificacion, Codpro, [Desde], Porcentaje)
-         VALUES (@tip, @tip, @cod, @des, @por)`,
-        { tip, cod, des, por }
-      );
-      tablas.push('principal');
-    }
-
-    // 6) Si ya existía en ambas
-    if (tablas.length === 0) {
-      return res.status(409).json({
-        error: 'Registro duplicado',
-        details: 'Ya existe esta escala en ambas tablas'
-      });
-    }
-
-    // 7) Éxito
-    res.json({
-      message: 'Escala creada exitosamente',
-      tablas
-    });
-  } catch (err) {
-    console.error('Error al crear la escala:', err);
-    res.status(500).json({
-      error: 'Error al crear la escala',
-      details: err.message
-    });
-  }
-});
-  
-
-// ===== PUT: actualizar escala =====
-router.put('/', async (req, res) => {
-  try {
-    const {
-      tipificacionOld, codproOld, desdeOld, porcentajeOld,
-      tipificacionNew, codproNew, desdeNew, porcentajeNew
-    } = req.body;
-
-    const oldTip = ensureString(tipificacionOld);
-    const oldCod = ensureString(codproOld);
-    const newTip = ensureString(tipificacionNew);
-    const newCod = ensureString(codproNew);
-
-    // Actualizar en t_Descuento_laboratorio
-    await executeQuery(
-      `UPDATE t_Descuento_laboratorio
-          SET tipificacion = @newTip,
-              codpro       = @newCod,
-              [desde]      = @desNew,
-              porcentaje   = @porNew
-        WHERE tipificacion = @oldTip
-          AND codpro       = @oldCod
-          AND [desde]      = @desOld
-          AND porcentaje   = @porOld`,
-      {
-        oldTip, oldCod,
-        desOld: desdeOld, porOld: porcentajeOld,
-        newTip, newCod,
-        desNew: desdeNew, porNew: porcentajeNew
-      }
-    );
-
-    // Actualizar en Descuento_laboratorio
-    await executeQuery(
-      `UPDATE Descuento_laboratorio
-          SET Documento     = @newTip,
-              Tipificacion  = @newTip,
-              Codpro        = @newCod,
-              [Desde]       = @desNew,
-              Porcentaje    = @porNew
-        WHERE Tipificacion = @oldTip
-          AND Codpro       = @oldCod
-          AND [Desde]      = @desOld
-          AND Porcentaje   = @porOld`,
-      {
-        oldTip, oldCod,
-        desOld: desdeOld, porOld: porcentajeOld,
-        newTip, newCod,
-        desNew: desdeNew, porNew: porcentajeNew
-      }
-    );
-
-    res.json({ message: 'Escala actualizada exitosamente' });
+    
+    const whereClause = whereConditions.length > 0 ? `WHERE ${whereConditions.join(' AND ')}` : '';
+    
+    const query = `
+      SELECT l.Descripcion AS Laboratorio, e.CodPro, p.Nombre, e.Rango1, 
+             CASE WHEN e.Des11 > 0 THEN e.Des11 ELSE 0 END AS Des11, 
+             CASE WHEN e.des12 > 0 THEN e.des12 ELSE 0 END AS des12, 
+             CASE WHEN e.des13 > 0 THEN e.des13 ELSE 0 END AS des13, 
+             e.Rango2, 
+             CASE WHEN e.des21 > 0 THEN e.des21 ELSE 0 END AS des21, 
+             CASE WHEN e.des22 > 0 THEN e.des22 ELSE 0 END AS des22, 
+             CASE WHEN e.des23 > 0 THEN e.des23 ELSE 0 END AS des23, 
+             e.Rango3, 
+             CASE WHEN e.des31 > 0 THEN e.des31 ELSE 0 END AS des31, 
+             CASE WHEN e.des32 > 0 THEN e.des32 ELSE 0 END AS des32, 
+             CASE WHEN e.des33 > 0 THEN e.des33 ELSE 0 END AS des33, 
+             e.Rango4, 
+             CASE WHEN e.des41 > 0 THEN e.des41 ELSE 0 END AS des41, 
+             CASE WHEN e.des42 > 0 THEN e.des42 ELSE 0 END AS des42, 
+             CASE WHEN e.des43 > 0 THEN e.des43 ELSE 0 END AS des43, 
+             e.Rango5, 
+             CASE WHEN e.des51 > 0 THEN e.des51 ELSE 0 END AS des51, 
+             CASE WHEN e.des52 > 0 THEN e.des52 ELSE 0 END AS des52, 
+             CASE WHEN e.des53 > 0 THEN e.des53 ELSE 0 END AS des53
+      FROM dbo.Escalas AS e 
+      INNER JOIN dbo.Productos AS p ON p.CodPro = e.CodPro 
+      INNER JOIN dbo.Laboratorios AS l ON RTRIM(l.CodLab) = LEFT(e.CodPro, 2)
+      ${whereClause}
+      ORDER BY l.Descripcion, p.Nombre
+    `;
+    
+    // Usar executeQuery con parámetros
+    const result = await executeQuery(query, parameters);
+    res.json(result.recordset);
   } catch (error) {
-    console.error('Error al actualizar escala:', error);
-    res.status(500).json({
-      error: 'Error al actualizar la escala',
-      details: error.message
-    });
+    console.error('Error al consultar escalas:', error);
+    res.status(500).json({ error: 'Error al consultar escalas' });
   }
 });
 
-// ===== DELETE: eliminar escala =====
-router.delete('/', async (req, res) => {
+// Actualizar escala
+router.put('/:codpro', async (req, res) => {
+    try {
+      const { codpro } = req.params;
+      const {
+        rango1, des11, des12, des13,
+        rango2, des21, des22, des23,
+        rango3, des31, des32, des33,
+        rango4, des41, des42, des43,
+        rango5, des51, des52, des53
+      } = req.body;
+  
+      const query = `
+        UPDATE dbo.Escalas 
+        SET Rango1 = @rango1, Des11 = @des11, des12 = @des12, des13 = @des13,
+            Rango2 = @rango2, des21 = @des21, des22 = @des22, des23 = @des23,
+            Rango3 = @rango3, des31 = @des31, des32 = @des32, des33 = @des33,
+            Rango4 = @rango4, des41 = @des41, des42 = @des42, des43 = @des43,
+            Rango5 = @rango5, des51 = @des51, des52 = @des52, des53 = @des53
+        WHERE CodPro = @codpro
+      `;
+  
+      // Modificación aquí: Aplicar la lógica para transformar 0 a -9.00
+      const parameters = {
+        codpro: codpro,
+        rango1: rango1 || 0,
+        
+        // Lógica para descuentos: Si el valor es 0, guarda -9.00. De lo contrario, guarda el valor o 0 si es nulo.
+        des11: des11 === 0 ? -9.00 : (des11 || 0),
+        des12: des12 === 0 ? -9.00 : (des12 || 0),
+        des13: des13 === 0 ? -9.00 : (des13 || 0),
+  
+        rango2: rango2 || 0,
+        des21: des21 === 0 ? -9.00 : (des21 || 0),
+        des22: des22 === 0 ? -9.00 : (des22 || 0),
+        des23: des23 === 0 ? -9.00 : (des23 || 0),
+  
+        rango3: rango3 || 0,
+        des31: des31 === 0 ? -9.00 : (des31 || 0),
+        des32: des32 === 0 ? -9.00 : (des32 || 0),
+        des33: des33 === 0 ? -9.00 : (des33 || 0),
+  
+        rango4: rango4 || 0,
+        des41: des41 === 0 ? -9.00 : (des41 || 0),
+        des42: des42 === 0 ? -9.00 : (des42 || 0),
+        des43: des43 === 0 ? -9.00 : (des43 || 0),
+  
+        rango5: rango5 || 0,
+        des51: des51 === 0 ? -9.00 : (des51 || 0),
+        des52: des52 === 0 ? -9.00 : (des52 || 0),
+        des53: des53 === 0 ? -9.00 : (des53 || 0)
+      };
+      
+      const result = await executeQuery(query, parameters);
+      
+      if (result.rowsAffected[0] > 0) {
+        res.json({ success: true, message: 'Escala actualizada correctamente' });
+      } else {
+        res.status(404).json({ error: 'No se encontró la escala para actualizar' });
+      }
+    } catch (error) {
+      console.error('Error al actualizar escala:', error);
+      res.status(500).json({ error: 'Error al actualizar escala' });
+    }
+  });
+// Eliminar escala
+router.delete('/:codpro', async (req, res) => {
   try {
-    const { tipificacion, codpro, desde, porcentaje } = req.body;
-
-    const tip = ensureString(tipificacion);
-    const cod = ensureString(codpro);
-
-    // Borrar de t_Descuento_laboratorio
-    await executeQuery(
-      `DELETE FROM t_Descuento_laboratorio
-        WHERE tipificacion = @tip
-          AND codpro       = @cod
-          AND [desde]      = @des
-          AND porcentaje   = @por`,
-      { tip, cod, des: desde, por: porcentaje }
-    );
-
-    // Borrar de Descuento_laboratorio
-    await executeQuery(
-      `DELETE FROM Descuento_laboratorio
-        WHERE Tipificacion = @tip
-          AND Codpro       = @cod
-          AND [Desde]      = @des
-          AND Porcentaje   = @por`,
-      { tip, cod, des: desde, por: porcentaje }
-    );
-
-    res.json({ message: 'Escala eliminada exitosamente' });
+    const { codpro } = req.params;
+    
+    const query = 'DELETE FROM dbo.Escalas WHERE CodPro = @codpro';
+    
+    const request = executeQuery(query);
+    request.input('codpro', codpro);
+    
+    const result = await request;
+    
+    if (result.rowsAffected[0] > 0) {
+      res.json({ success: true, message: 'Escala eliminada correctamente' });
+    } else {
+      res.status(404).json({ error: 'No se encontró la escala para eliminar' });
+    }
   } catch (error) {
     console.error('Error al eliminar escala:', error);
-    res.status(500).json({
-      error: 'Error al eliminar la escala',
-      details: error.message
-    });
+    res.status(500).json({ error: 'Error al eliminar escala' });
   }
 });
 
-module.exports = router;
+module.exports = router; 
