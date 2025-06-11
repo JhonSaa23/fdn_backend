@@ -1,5 +1,5 @@
 // Este archivo ha sido renombrado a promociones.js
-// routes/escalas.js
+// routes/promociones.js
 const express = require('express');
 const router = express.Router();
 const { executeQuery, sql } = require('../database');
@@ -8,7 +8,8 @@ const { executeQuery, sql } = require('../database');
 const ensureString = (value) => {
   return value != null ? String(value).trim() : '';
 };
-// ===== GET: obtener todas las escalas con filtros dinámicos =====
+
+// ===== GET: obtener todas las promociones con filtros dinámicos =====
 router.get('/', async (req, res) => {
   try {
     const { tipificacion, codpro, desde, porcentaje } = req.query;
@@ -65,9 +66,9 @@ router.get('/', async (req, res) => {
     const result = await executeQuery(query, params);
     res.json(result.recordset);
   } catch (error) {
-    console.error('Error al obtener escalas:', error);
+    console.error('Error al obtener promociones:', error);
     res.status(500).json({
-      error: 'Error al obtener las escalas',
+      error: 'Error al obtener las promociones',
       details: error.message
     });
   }
@@ -90,7 +91,7 @@ router.get('/negocios', (req, res) => {
   res.json(negocios);
 });
 
-// ===== POST: crear nueva escala (sin error PK) =====
+// ===== POST: crear nueva promocion (sin error PK) =====
 router.post('/', async (req, res) => {
   try {
     const { tipificacion, codpro, desde, porcentaje } = req.body;
@@ -164,26 +165,26 @@ router.post('/', async (req, res) => {
     if (tablas.length === 0) {
       return res.status(409).json({
         error: 'Registro duplicado',
-        details: 'Ya existe esta escala en ambas tablas'
+        details: 'Ya existe esta promoción en ambas tablas'
       });
     }
 
     // 7) Éxito
     res.json({
-      message: 'Escala creada exitosamente',
+      message: 'Promoción creada exitosamente',
       tablas
     });
   } catch (err) {
-    console.error('Error al crear la escala:', err);
+    console.error('Error al crear la promoción:', err);
     res.status(500).json({
-      error: 'Error al crear la escala',
+      error: 'Error al crear la promoción',
       details: err.message
     });
   }
 });
   
 
-// ===== PUT: actualizar escala =====
+// ===== PUT: actualizar promocion =====
 router.put('/', async (req, res) => {
   try {
     const {
@@ -235,17 +236,17 @@ router.put('/', async (req, res) => {
       }
     );
 
-    res.json({ message: 'Escala actualizada exitosamente' });
+    res.json({ message: 'Promoción actualizada exitosamente' });
   } catch (error) {
-    console.error('Error al actualizar escala:', error);
+    console.error('Error al actualizar promoción:', error);
     res.status(500).json({
-      error: 'Error al actualizar la escala',
+      error: 'Error al actualizar la promoción',
       details: error.message
     });
   }
 });
 
-// ===== DELETE: eliminar escala =====
+// ===== DELETE: eliminar promocion =====
 router.delete('/', async (req, res) => {
   try {
     const { tipificacion, codpro, desde, porcentaje } = req.body;
@@ -273,11 +274,11 @@ router.delete('/', async (req, res) => {
       { tip, cod, des: desde, por: porcentaje }
     );
 
-    res.json({ message: 'Escala eliminada exitosamente' });
+    res.json({ message: 'Promoción eliminada exitosamente' });
   } catch (error) {
-    console.error('Error al eliminar escala:', error);
+    console.error('Error al eliminar promoción:', error);
     res.status(500).json({
-      error: 'Error al eliminar la escala',
+      error: 'Error al eliminar la promoción',
       details: error.message
     });
   }
