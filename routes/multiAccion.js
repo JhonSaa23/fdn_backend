@@ -115,19 +115,55 @@ router.post('/guia/:numero/reusar', async (req, res) => {
 // Autorizar código
 router.post('/autorizar', async (req, res) => {
   try {
-    const codigoLimpio = req.body.codigo?.trim();
+    const codigosInput = req.body.codigos?.trim();
     
-    if (!codigoLimpio) {
-      return res.status(400).json({ message: 'Código requerido' });
+    if (!codigosInput) {
+      return res.status(400).json({ message: 'Códigos requeridos' });
     }
     
-    const query = 'INSERT INTO PRODBOLETA VALUES (@codigo)';
-    await executeQuery(query, { codigo: codigoLimpio });
-
-    res.json({ message: 'Código autorizado correctamente' });
+    // Dividir por comas y limpiar espacios
+    const codigosArray = codigosInput
+      .split(',')
+      .map(codigo => codigo.trim())
+      .filter(codigo => codigo.length > 0);
+    
+    if (codigosArray.length === 0) {
+      return res.status(400).json({ message: 'Códigos requeridos' });
+    }
+    
+    let codigosAutorizados = 0;
+    let errores = [];
+    
+    // Procesar cada código
+    for (const codigo of codigosArray) {
+      try {
+        const query = 'INSERT INTO PRODBOLETA VALUES (@codigo)';
+        await executeQuery(query, { codigo });
+        codigosAutorizados++;
+      } catch (error) {
+        console.error(`Error al autorizar código ${codigo}:`, error);
+        errores.push(`Error en código ${codigo}: ${error.message}`);
+      }
+    }
+    
+    let mensaje = '';
+    if (codigosAutorizados === codigosArray.length) {
+      mensaje = `${codigosAutorizados} código${codigosAutorizados > 1 ? 's' : ''} autorizado${codigosAutorizados > 1 ? 's' : ''} correctamente`;
+    } else if (codigosAutorizados > 0) {
+      mensaje = `${codigosAutorizados} de ${codigosArray.length} códigos autorizados. ${errores.length} errores.`;
+    } else {
+      mensaje = `No se pudo autorizar ningún código. Errores: ${errores.join(', ')}`;
+    }
+    
+    res.json({ 
+      message: mensaje,
+      autorizados: codigosAutorizados,
+      total: codigosArray.length,
+      errores: errores
+    });
   } catch (error) {
-    console.error('Error al autorizar código:', error);
-    res.status(500).json({ message: 'Error al autorizar código' });
+    console.error('Error al autorizar códigos:', error);
+    res.status(500).json({ message: 'Error al autorizar códigos' });
   }
 });
 
