@@ -112,16 +112,16 @@ router.post('/guia/:numero/reusar', async (req, res) => {
   }
 });
 
-// Autorizar código - Cambiado para usar parámetros como los demás endpoints
-router.post('/autorizar/:codigos', async (req, res) => {
+// Autorizar códigos - Siguiendo el mismo patrón que movimientos
+router.post('/autorizar', async (req, res) => {
   try {
     console.log('=== DEBUG AUTORIZAR ===');
     console.log('Headers:', req.headers);
-    console.log('Params:', req.params);
-    console.log('Params.codigos:', req.params.codigos);
-    console.log('Params.codigos tipo:', typeof req.params.codigos);
+    console.log('Body completo:', req.body);
+    console.log('Body.codigos:', req.body.codigos);
+    console.log('Body.codigos tipo:', typeof req.body.codigos);
     
-    const codigosInput = req.params.codigos?.trim();
+    const codigosInput = req.body.codigos?.trim();
     
     if (!codigosInput) {
       console.log('❌ ERROR: Códigos vacíos o undefined');
