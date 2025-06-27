@@ -15,13 +15,33 @@ const { getConnection } = require('./database');
 
 const app = express();
 
-// Configuración CORS
-app.use(cors());
+// Configuración CORS mejorada para ngrok
+app.use(cors({
+  origin: true, // Permitir todos los orígenes en desarrollo
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'ngrok-skip-browser-warning', 'Accept']
+}));
 
 // Aumentar límites para uploads
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 app.use(cookieParser());
+
+// Middleware de debugging para ngrok
+app.use((req, res, next) => {
+  if (req.path.includes('/multi-accion/autorizar')) {
+    console.log('🔍 REQUEST DEBUG:', {
+      method: req.method,
+      path: req.path,
+      headers: req.headers,
+      body: req.body,
+      contentType: req.headers['content-type'],
+      userAgent: req.headers['user-agent']
+    });
+  }
+  next();
+});
 
 // Ruta para archivos estáticos
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));

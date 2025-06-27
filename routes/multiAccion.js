@@ -115,9 +115,17 @@ router.post('/guia/:numero/reusar', async (req, res) => {
 // Autorizar código
 router.post('/autorizar', async (req, res) => {
   try {
+    console.log('=== DEBUG AUTORIZAR ===');
+    console.log('Headers:', req.headers);
+    console.log('Body completo:', req.body);
+    console.log('Body.codigos:', req.body.codigos);
+    console.log('Body.codigos tipo:', typeof req.body.codigos);
+    
     const codigosInput = req.body.codigos?.trim();
     
     if (!codigosInput) {
+      console.log('❌ ERROR: Códigos vacíos o undefined');
+      console.log('codigosInput:', codigosInput);
       return res.status(400).json({ message: 'Códigos requeridos' });
     }
     
@@ -128,6 +136,8 @@ router.post('/autorizar', async (req, res) => {
       .filter(codigo => codigo.length > 0);
     
     if (codigosArray.length === 0) {
+      console.log('❌ ERROR: Array de códigos vacío después de procesar');
+      console.log('codigosArray:', codigosArray);
       return res.status(400).json({ message: 'Códigos requeridos' });
     }
     
