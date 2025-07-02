@@ -3,6 +3,9 @@
 const express = require('express');
 const router = express.Router();
 const { executeQuery, sql } = require('../database');
+const multer = require('multer');
+const XLSX = require('xlsx');
+const path = require('path');
 
 // Función auxiliar para asegurar que un valor sea string y aplicar trim
 const ensureString = (value) => {
@@ -74,7 +77,7 @@ router.get('/', async (req, res) => {
   }
 });
 
-// Endpoint para obtener la lista de negocios
+// Endpoint para obtener la lista de negocios (deprecated - usar /tipificaciones)
 router.get('/negocios', (req, res) => {
   const negocios = [
     { codlab: '01', numero: 1, descripcion: 'Farmacia Independiente' },
@@ -89,6 +92,29 @@ router.get('/negocios', (req, res) => {
     { codlab: '49', numero: 10, descripcion: 'Farmacias Tops' }
   ];
   res.json(negocios);
+});
+
+// Endpoint para obtener las tipificaciones desde la base de datos
+router.get('/tipificaciones', async (req, res) => {
+  try {
+    const query = `
+      SELECT 
+        tipificacion,
+        codlab,
+        RTRIM(descripcion) as descripcion
+      FROM t_Tipifica_laboratorio
+      ORDER BY tipificacion
+    `;
+    
+    const result = await executeQuery(query);
+    res.json(result.recordset);
+  } catch (error) {
+    console.error('Error al obtener tipificaciones:', error);
+    res.status(500).json({
+      error: 'Error al obtener las tipificaciones',
+      details: error.message
+    });
+  }
 });
 
 // ===== POST: crear nueva promocion (sin error PK) =====
@@ -279,6 +305,211 @@ router.delete('/', async (req, res) => {
     console.error('Error al eliminar promoción:', error);
     res.status(500).json({
       error: 'Error al eliminar la promoción',
+      details: error.message
+    });
+  }
+});
+
+// Configuración de multer para subida de archivos
+const storage = multer.memoryStorage();
+const upload = multer({
+  storage: storage,
+  fileFilter: (req, file, cb) => {
+    const allowedTypes = [
+      'application/vnd.ms-excel',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'application/excel',
+      'application/x-excel',
+      'application/x-msexcel'
+    ];
+    
+    const allowedExtensions = ['.xls', '.xlsx'];
+    const fileExtension = path.extname(file.originalname).toLowerCase();
+    
+    if (allowedTypes.includes(file.mimetype) || allowedExtensions.includes(fileExtension)) {
+      cb(null, true);
+    } else {
+      cb(new Error('Solo se permiten archivos Excel (.xls, .xlsx)'), false);
+    }
+  },
+  limits: {
+    fileSize: 10 * 1024 * 1024 // 10MB límite
+  }
+});
+
+// ===== POST: importar promociones desde Excel =====
+router.post('/import', upload.single('file'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({
+        error: 'No se proporcionó archivo',
+        details: 'Debe seleccionar un archivo Excel'
+      });
+    }
+
+    // Leer el archivo Excel
+    const workbook = XLSX.read(req.file.buffer, { type: 'buffer' });
+    const sheetName = workbook.SheetNames[0];
+    const worksheet = workbook.Sheets[sheetName];
+    
+    // Convertir a JSON
+    const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+    
+    if (jsonData.length < 2) {
+      return res.status(400).json({
+        error: 'Archivo vacío',
+        details: 'El archivo debe contener al menos una fila de encabezados y una fila de datos'
+      });
+    }
+
+    // Obtener encabezados
+    const headers = jsonData[0].map(h => String(h).toLowerCase().trim());
+    
+    // Buscar las columnas requeridas
+    const tipificacionIndex = headers.findIndex(h => 
+      h.includes('tipificacion') || h.includes('tipificación') || h.includes('tipo')
+    );
+    const codproIndex = headers.findIndex(h => 
+      h.includes('codpro') || h.includes('codigo') || h.includes('producto')
+    );
+    const desdeIndex = headers.findIndex(h => 
+      h.includes('desde') || h.includes('cantidad') || h.includes('min')
+    );
+    const porcentajeIndex = headers.findIndex(h => 
+      h.includes('porcentaje') || h.includes('descuento') || h.includes('%')
+    );
+
+    if (tipificacionIndex === -1 || codproIndex === -1 || desdeIndex === -1 || porcentajeIndex === -1) {
+      return res.status(400).json({
+        error: 'Columnas requeridas no encontradas',
+        details: 'El archivo debe contener columnas "Tipificacion", "Codpro", "Desde" y "Porcentaje"'
+      });
+    }
+
+    // Procesar datos
+    const promociones = [];
+    const errores = [];
+    
+    for (let i = 1; i < jsonData.length; i++) {
+      const row = jsonData[i];
+      
+      if (!row || row.length === 0 || row.every(cell => !cell)) {
+        continue; // Saltar filas vacías
+      }
+
+      const tipificacion = row[tipificacionIndex];
+      const codpro = row[codproIndex];
+      const desde = row[desdeIndex];
+      const porcentaje = row[porcentajeIndex];
+
+      if (!tipificacion || !codpro || desde == null || porcentaje == null) {
+        errores.push(`Fila ${i + 1}: Datos incompletos`);
+        continue;
+      }
+
+      const tipStr = ensureString(tipificacion);
+      const codStr = ensureString(codpro);
+      const desNum = parseFloat(desde);
+      const porNum = parseFloat(porcentaje);
+
+      if (isNaN(desNum) || isNaN(porNum)) {
+        errores.push(`Fila ${i + 1}: "Desde" y "Porcentaje" deben ser números válidos`);
+        continue;
+      }
+
+      promociones.push({
+        tipificacion: tipStr,
+        codpro: codStr,
+        desde: desNum,
+        porcentaje: porNum
+      });
+    }
+
+    if (promociones.length === 0) {
+      return res.status(400).json({
+        error: 'No hay datos válidos para procesar',
+        details: errores.length > 0 ? errores : ['No se encontraron filas con datos válidos']
+      });
+    }
+
+    // Insertar en lotes para mejor rendimiento
+    let insertados = 0;
+    let duplicados = 0;
+    const erroresInsercion = [];
+
+    for (const promocionData of promociones) {
+      try {
+        const { tipificacion, codpro, desde, porcentaje } = promocionData;
+
+        // Verificar si ya existe en alguna tabla
+        const [checkTemp, checkMain] = await Promise.all([
+          executeQuery(
+            `SELECT 1 AS existe FROM t_Descuento_laboratorio 
+             WHERE tipificacion = @tip AND LTRIM(RTRIM(codpro)) = @cod 
+             AND [desde] = @des AND porcentaje = @por`,
+            { tip: tipificacion, cod: codpro, des: desde, por: porcentaje }
+          ),
+          executeQuery(
+            `SELECT 1 AS existe FROM Descuento_laboratorio 
+             WHERE Tipificacion = @tip AND LTRIM(RTRIM(Codpro)) = @cod 
+             AND [Desde] = @des AND Porcentaje = @por`,
+            { tip: tipificacion, cod: codpro, des: desde, por: porcentaje }
+          )
+        ]);
+
+        let insertadoEnAlgunaTabla = false;
+
+        // Insertar en t_Descuento_laboratorio si no existe
+        if (checkTemp.recordset.length === 0) {
+          await executeQuery(
+            `INSERT INTO t_Descuento_laboratorio (tipificacion, codpro, [desde], porcentaje) 
+             VALUES (@tip, @cod, @des, @por)`,
+            { tip: tipificacion, cod: codpro, des: desde, por: porcentaje }
+          );
+          insertadoEnAlgunaTabla = true;
+        }
+
+        // Insertar en Descuento_laboratorio si no existe
+        // El campo Documento toma el mismo valor que Tipificacion
+        if (checkMain.recordset.length === 0) {
+          await executeQuery(
+            `INSERT INTO Descuento_laboratorio (Documento, Tipificacion, Codpro, [Desde], Porcentaje) 
+             VALUES (@tip, @tip, @cod, @des, @por)`,
+            { tip: tipificacion, cod: codpro, des: desde, por: porcentaje }
+          );
+          insertadoEnAlgunaTabla = true;
+        }
+
+        if (insertadoEnAlgunaTabla) {
+          insertados++;
+        } else {
+          duplicados++;
+        }
+
+      } catch (error) {
+        console.error(`Error insertando promoción ${promocionData.codpro}:`, error);
+        erroresInsercion.push(`Producto ${promocionData.codpro}: ${error.message}`);
+      }
+    }
+
+    res.json({
+      message: 'Importación de promociones completada',
+      resumen: {
+        totalProcesados: promociones.length,
+        insertados,
+        duplicados,
+        errores: errores.length + erroresInsercion.length
+      },
+      detalles: {
+        erroresValidacion: errores,
+        erroresInsercion
+      }
+    });
+
+  } catch (error) {
+    console.error('Error en importación de promociones:', error);
+    res.status(500).json({
+      error: 'Error al procesar el archivo',
       details: error.message
     });
   }
