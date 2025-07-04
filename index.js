@@ -13,6 +13,8 @@ const clientesRoutes = require('./routes/clientes');
 const multiAccionRoutes = require('./routes/multiAccion');
 const escalasRoutes = require('./routes/escalas');
 const kardexRoutes = require('./routes/kardex');
+const guiasRoutes = require('./routes/guias');
+const bonificacionesRoutes = require('./routes/bonificaciones');
 const { getConnection } = require('./database');
 
 const app = express();
@@ -66,6 +68,8 @@ app.use('/api/clientes', clientesRoutes);
 app.use('/api/multi-accion', multiAccionRoutes);
 app.use('/api/escalas', escalasRoutes);
 app.use('/api/kardex', kardexRoutes);
+app.use('/api/guias', guiasRoutes);
+app.use('/api/bonificaciones', bonificacionesRoutes);
 
 // Ruta de prueba
 app.get('/', (req, res) => {

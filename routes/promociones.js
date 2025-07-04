@@ -515,4 +515,95 @@ router.post('/import', upload.single('file'), async (req, res) => {
   }
 });
 
+// ===== DELETE: eliminar promociones en masa por tipificaciones =====
+router.delete('/masa', async (req, res) => {
+  try {
+    const { tipificaciones } = req.body;
+
+    // Validación de entrada
+    if (!tipificaciones || !Array.isArray(tipificaciones) || tipificaciones.length === 0) {
+      return res.status(400).json({
+        error: 'Datos inválidos',
+        details: 'Debe proporcionar un array de tipificaciones'
+      });
+    }
+
+    // Convertir tipificaciones a números y validar
+    const tipificacionesNum = [];
+    for (const tip of tipificaciones) {
+      const tipNum = parseFloat(tip);
+      if (isNaN(tipNum)) {
+        return res.status(400).json({
+          error: 'Tipificación inválida',
+          details: `La tipificación "${tip}" no es un número válido`
+        });
+      }
+      tipificacionesNum.push(tipNum);
+    }
+
+    // Construir la condición WHERE con parámetros seguros
+    const placeholders = tipificacionesNum.map((_, index) => `@tip${index}`).join(', ');
+    const params = {};
+    tipificacionesNum.forEach((tip, index) => {
+      params[`tip${index}`] = tip;
+    });
+
+    // Contar registros que se van a eliminar (para el reporte)
+    const countTempQuery = `
+      SELECT COUNT(*) as total 
+      FROM t_Descuento_laboratorio 
+      WHERE tipificacion IN (${placeholders})
+    `;
+    
+    const countMainQuery = `
+      SELECT COUNT(*) as total 
+      FROM Descuento_laboratorio 
+      WHERE Tipificacion IN (${placeholders})
+    `;
+
+    const [countTempResult, countMainResult] = await Promise.all([
+      executeQuery(countTempQuery, params),
+      executeQuery(countMainQuery, params)
+    ]);
+
+    const totalTemporal = countTempResult.recordset[0].total;
+    const totalPrincipal = countMainResult.recordset[0].total;
+
+    // Eliminar de t_Descuento_laboratorio
+    const deleteTempQuery = `
+      DELETE FROM t_Descuento_laboratorio 
+      WHERE tipificacion IN (${placeholders})
+    `;
+
+    // Eliminar de Descuento_laboratorio
+    const deleteMainQuery = `
+      DELETE FROM Descuento_laboratorio 
+      WHERE Tipificacion IN (${placeholders})
+    `;
+
+    // Ejecutar eliminaciones
+    await Promise.all([
+      executeQuery(deleteTempQuery, params),
+      executeQuery(deleteMainQuery, params)
+    ]);
+
+    res.json({
+      message: 'Eliminación en masa de promociones completada exitosamente',
+      resumen: {
+        tipificacionesEliminadas: tipificacionesNum,
+        registrosEliminadosTemporal: totalTemporal,
+        registrosEliminadosPrincipal: totalPrincipal,
+        totalRegistrosEliminados: totalTemporal + totalPrincipal
+      }
+    });
+
+  } catch (error) {
+    console.error('Error en eliminación en masa de promociones:', error);
+    res.status(500).json({
+      error: 'Error al eliminar promociones en masa',
+      details: error.message
+    });
+  }
+});
+
 module.exports = router;
