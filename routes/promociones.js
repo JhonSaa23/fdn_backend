@@ -127,7 +127,7 @@ router.get('/buscar-productos', async (req, res) => {
     }
 
     const query = `
-      SELECT TOP 10
+      SELECT
         RTRIM(CodPro) as codpro,
         RTRIM(Nombre) as nombre,
         RTRIM(Laboratorio) as laboratorio
