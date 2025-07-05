@@ -2,6 +2,22 @@ const express = require('express');
 const router = express.Router();
 const { executeQuery } = require('../database');
 const sql = require('mssql');
+const { getConnection } = require('../database');
+
+// Función para formatear fecha a dd/mm/yyyy
+function formatDateForSql(dateStr) {
+  const date = new Date(dateStr);
+  const day = date.getDate().toString().padStart(2, '0');
+  const month = (date.getMonth() + 1).toString().padStart(2, '0');
+  const year = date.getFullYear();
+  return `${day}/${month}/${year}`;
+}
+
+// Función para convertir fecha de YYYY-MM-DD a DD/MM/YYYY
+function convertDateFormat(dateStr) {
+  const [year, month, day] = dateStr.split('-');
+  return `${day}/${month}/${year}`;
+}
 
 // Endpoint para consultar movimientos (Kardex)
 router.post('/consultar', async (req, res) => {
@@ -79,8 +95,6 @@ router.post('/consultar', async (req, res) => {
       query += ' WHERE ' + condiciones.join(' AND ');
     }
     
-    // Ordenar por fecha descendente
-    query += ' ORDER BY Fecha DESC';
     
     console.log('Ejecutando consulta:', query);
     console.log('Parámetros:', params);
@@ -95,6 +109,56 @@ router.post('/consultar', async (req, res) => {
     console.error('Error en consulta de kardex:', error);
     res.status(500).json({ 
       error: 'Error interno del servidor',
+      details: error.message 
+    });
+  }
+});
+
+// Endpoint para obtener todos los datos de la tabla Kardex
+router.get('/tabla', async (req, res) => {
+  try {
+    const query = `
+      SELECT *
+      FROM Kardex WITH(NOLOCK)
+      ORDER BY Fecha DESC
+    `;
+
+    const result = await executeQuery(query);
+    res.json(result.recordset);
+  } catch (error) {
+    console.error('Error al obtener datos del kardex:', error);
+    res.status(500).json({
+      error: 'Error al obtener datos del kardex',
+      details: error.message
+    });
+  }
+});
+
+// Endpoint para obtener los datos de la tabla Kardex
+router.get('/', async (req, res) => {
+  try {
+    const { recordset } = await executeQuery(`
+      SELECT 
+        numero,
+        documento,
+        CONVERT(varchar, fecha, 103) as fecha,
+        Tipo,
+        clase,
+        CantEnt,
+        CantSal,
+        costo,
+        venta,
+        stock,
+        CostoP
+      FROM Kardex 
+      ORDER BY fecha ASC
+    `);
+    
+    res.json(recordset || []);
+  } catch (error) {
+    console.error('Error al obtener datos de Kardex:', error);
+    res.status(500).json({ 
+      error: 'Error al obtener los datos',
       details: error.message 
     });
   }

@@ -117,6 +117,76 @@ router.get('/tipificaciones', async (req, res) => {
   }
 });
 
+// Endpoint para buscar productos por código o nombre
+router.get('/buscar-productos', async (req, res) => {
+  try {
+    const { busqueda } = req.query;
+    
+    if (!busqueda) {
+      return res.json([]);
+    }
+
+    const query = `
+      SELECT TOP 10
+        RTRIM(CodPro) as codpro,
+        RTRIM(Nombre) as nombre,
+        RTRIM(Laboratorio) as laboratorio
+      FROM Productos
+      WHERE CodPro LIKE @busqueda + '%'
+         OR Nombre LIKE '%' + @busqueda + '%'
+      ORDER BY 
+        CASE WHEN CodPro LIKE @busqueda + '%' THEN 0 ELSE 1 END,
+        CodPro
+    `;
+
+    const result = await executeQuery(query, { busqueda: busqueda.trim() });
+    res.json(result.recordset);
+  } catch (error) {
+    console.error('Error al buscar productos:', error);
+    res.status(500).json({
+      error: 'Error al buscar productos',
+      details: error.message
+    });
+  }
+});
+
+// Endpoint para obtener todos los productos
+router.get('/productos', async (req, res) => {
+  try {
+    console.log('Iniciando consulta de productos...');
+    
+    const query = `
+      SELECT
+        RTRIM(CodPro) as codpro,
+        RTRIM(Nombre) as nombre
+      FROM Productos WITH(NOLOCK)
+      ORDER BY CodPro
+    `;
+
+    console.log('Ejecutando query:', query);
+    
+    const result = await executeQuery(query);
+    console.log(`Consulta exitosa. Productos encontrados: ${result.recordset.length}`);
+    
+    res.json(result.recordset);
+  } catch (error) {
+    console.error('Error detallado al obtener productos:', error);
+    console.error('Stack trace:', error.stack);
+    
+    // Verificar si es un error de conexión
+    const isConnectionError = error.code === 'ECONNCLOSED' || 
+                            error.code === 'ECONNRESET' ||
+                            error.message.includes('connect');
+                            
+    res.status(500).json({
+      error: 'Error al obtener productos',
+      details: error.message,
+      type: isConnectionError ? 'CONNECTION_ERROR' : 'QUERY_ERROR',
+      code: error.code
+    });
+  }
+});
+
 // ===== POST: crear nueva promocion (sin error PK) =====
 router.post('/', async (req, res) => {
   try {
