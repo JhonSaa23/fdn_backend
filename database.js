@@ -67,7 +67,7 @@ async function executeQuery(query, params = {}, maxRetries = 3) {
             // Agregar parámetros si existen
             if (params && typeof params === 'object') {
                 Object.entries(params).forEach(([key, value]) => {
-                    if (value !== null && value !== undefined && value !== '') {
+                    if (value !== null && value !== undefined) {
                         // Determinar el tipo SQL basado en el valor
                         if (typeof value === 'number') {
                             if (Number.isInteger(value)) {
@@ -80,7 +80,19 @@ async function executeQuery(query, params = {}, maxRetries = 3) {
                         } else if (typeof value === 'boolean') {
                             request.input(key, sql.Bit, value);
                         } else {
-                            request.input(key, sql.VarChar, value.toString());
+                            // Detectar si es una fecha en formato ISO completo
+                            const dateRegexISO = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
+                            // Detectar si es una fecha en formato simple
+                            const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+                            
+                            if (dateRegexISO.test(value.toString()) || dateRegex.test(value.toString())) {
+                                // Convertir string de fecha a Date object
+                                const dateValue = new Date(value.toString());
+                                request.input(key, sql.DateTime, dateValue);
+                            } else {
+                                // Para strings normales, incluimos valores vacíos también
+                                request.input(key, sql.VarChar, value.toString());
+                            }
                         }
                     }
                 });
