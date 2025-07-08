@@ -54,10 +54,27 @@ router.get('/por-laboratorio/:codlab', async (req, res) => {
                 b.Factor, 
                 b.CodBoni, 
                 b.Cantidad,
-                p.Stock AS StockProducto,
-                p.Nombre AS NombreProducto,
-                pb.Stock AS StockBonificacion,
-                pb.Nombre AS NombreBonificacion
+                p.Stock               AS StockProducto,
+                p.Nombre              AS NombreProducto,
+                pb.Stock              AS StockBonificacion,
+                pb.Nombre             AS NombreBonificacion,
+
+                -- 1) Paquetes completos que puedes armar
+                CAST(p.Stock AS INT) / CAST(b.Factor AS INT) 
+                  AS Paquetes,
+
+                -- 2) Cuántos productos de regalo debes comprar para agotar tu stock normal
+                CASE
+                  WHEN 
+                    (CAST(p.Stock AS INT) / CAST(b.Factor AS INT)) * b.Cantidad
+                    > CAST(pb.Stock AS INT)
+                  THEN 
+                    (CAST(p.Stock AS INT) / CAST(b.Factor AS INT)) * b.Cantidad
+                    - CAST(pb.Stock AS INT)
+                  ELSE 0
+                END 
+                  AS BonosAComprar
+
             FROM Bonificaciones b
             LEFT JOIN Productos p ON b.Codproducto = p.CodPro
             LEFT JOIN Productos pb ON b.CodBoni = pb.CodPro
