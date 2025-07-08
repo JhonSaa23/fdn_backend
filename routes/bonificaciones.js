@@ -2,48 +2,56 @@ const express = require('express');
 const router = express.Router();
 const { executeQuery } = require('../database');
 
-// GET /bonificaciones/listar?Codproducto=...&Factor=...&CodBoni=...&Cantidad=...
+// Ruta para listar todas las bonificaciones
 router.get('/listar', async (req, res) => {
-  try {
-    const { Codproducto, Factor, CodBoni, Cantidad } = req.query;
-    let query = `
-      SELECT 
-        b.Codproducto, 
-        b.Factor, 
-        b.CodBoni, 
-        b.Cantidad,
-        p.Stock AS StockProducto,
-        p.Nombre AS NombreProducto,
-        pb.Stock AS StockBonificacion,
-        pb.Nombre AS NombreBonificacion
-      FROM Bonificaciones b
-      LEFT JOIN Productos p ON b.Codproducto = p.CodPro
-      LEFT JOIN Productos pb ON b.CodBoni = pb.CodPro
-      WHERE 1=1
-    `;
-    const params = {};
-    if (Codproducto) {
-      query += ' AND b.Codproducto LIKE @Codproducto';
-      params.Codproducto = `%${Codproducto}%`;
+    try {
+        const query = `
+            SELECT 
+                b.Codproducto, 
+                b.Factor, 
+                b.CodBoni, 
+                b.Cantidad,
+                p.Stock AS StockProducto,
+                p.Nombre AS NombreProducto,
+                pb.Stock AS StockBonificacion,
+                pb.Nombre AS NombreBonificacion
+            FROM Bonificaciones b
+            LEFT JOIN Productos p ON b.Codproducto = p.CodPro
+            LEFT JOIN Productos pb ON b.CodBoni = pb.CodPro
+        `;
+        const result = await executeQuery(query);
+        res.json({ success: true, data: result.recordset });
+    } catch (error) {
+        console.error('Error al obtener bonificaciones:', error);
+        res.status(500).json({ success: false, error: error.message });
     }
-    if (Factor) {
-      query += ' AND b.Factor = @Factor';
-      params.Factor = Factor;
+});
+
+// Nueva ruta para filtrar por código de laboratorio
+router.get('/por-laboratorio/:codlab', async (req, res) => {
+    try {
+        const { codlab } = req.params;
+        const query = `
+            SELECT 
+                b.Codproducto, 
+                b.Factor, 
+                b.CodBoni, 
+                b.Cantidad,
+                p.Stock AS StockProducto,
+                p.Nombre AS NombreProducto,
+                pb.Stock AS StockBonificacion,
+                pb.Nombre AS NombreBonificacion
+            FROM Bonificaciones b
+            LEFT JOIN Productos p ON b.Codproducto = p.CodPro
+            LEFT JOIN Productos pb ON b.CodBoni = pb.CodPro
+            WHERE LEFT(b.Codproducto, 2) = @codlab
+        `;
+        const result = await executeQuery(query, { codlab });
+        res.json({ success: true, data: result.recordset });
+    } catch (error) {
+        console.error('Error al filtrar por laboratorio:', error);
+        res.status(500).json({ success: false, error: error.message });
     }
-    if (CodBoni) {
-      query += ' AND b.CodBoni LIKE @CodBoni';
-      params.CodBoni = `%${CodBoni}%`;
-    }
-    if (Cantidad) {
-      query += ' AND b.Cantidad = @Cantidad';
-      params.Cantidad = Cantidad;
-    }
-    query += ' ORDER BY b.Codproducto';
-    const result = await executeQuery(query, params);
-    res.json({ success: true, data: result.recordset });
-  } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
-  }
 });
 
 module.exports = router; 
