@@ -16,6 +16,7 @@ const kardexRoutes = require('./routes/kardex');
 const guiasRoutes = require('./routes/guias');
 const bonificacionesRoutes = require('./routes/bonificaciones');
 const { getConnection } = require('./database');
+const productosRoutes = require('./routes/productos');
 
 const app = express();
 
@@ -70,6 +71,7 @@ app.use('/api/escalas', escalasRoutes);
 app.use('/api/kardex', kardexRoutes);
 app.use('/api/guias', guiasRoutes);
 app.use('/api/bonificaciones', bonificacionesRoutes);
+app.use('/api/productos', productosRoutes);
 
 // Ruta de prueba
 app.get('/', (req, res) => {
@@ -82,8 +84,6 @@ app.use((req, res, next) => {
   res.setTimeout(5 * 60 * 1000); // 5 minutos
   next();
 });
-
-
 
 // Servir frontend en producción
 if (process.env.NODE_ENV === 'production') {
