@@ -15,6 +15,8 @@ const escalasRoutes = require('./routes/escalas');
 const kardexRoutes = require('./routes/kardex');
 const guiasRoutes = require('./routes/guias');
 const bonificacionesRoutes = require('./routes/bonificaciones');
+const pedidosRoutes = require('./routes/pedidos');
+const saldosRoutes = require('./routes/saldos');
 const { getConnection } = require('./database');
 const productosRoutes = require('./routes/productos');
 
@@ -71,6 +73,8 @@ app.use('/api/escalas', escalasRoutes);
 app.use('/api/kardex', kardexRoutes);
 app.use('/api/guias', guiasRoutes);
 app.use('/api/bonificaciones', bonificacionesRoutes);
+app.use('/api/pedidos', pedidosRoutes);
+app.use('/api/saldos', saldosRoutes);
 app.use('/api/productos', productosRoutes);
 
 // Ruta de prueba
