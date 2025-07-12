@@ -12,7 +12,7 @@ router.get('/', async (req, res) => {
     const { codigoProducto = '00' } = req.query;
 
     const query = `
-      SELECT TOP 20
+      SELECT 
         s.codpro,
         p.Nombre AS NombreProducto,
         s.almacen,
@@ -62,9 +62,23 @@ router.get('/export', async (req, res) => {
         s.lote,
         s.vencimiento,
         s.saldo,
-        s.protocolo
+        s.protocolo,
+        cf.Fisico,
+        (cf.Fisico - s.saldo) AS Diferencia,
+        CASE 
+          WHEN cf.Fisico IS NULL THEN 'SIN CONTEO'
+          WHEN (cf.Fisico - s.saldo) = 0 THEN 'CUADRADO'
+          WHEN (cf.Fisico - s.saldo) > 0 THEN 'SOBRANTE'
+          WHEN (cf.Fisico - s.saldo) < 0 THEN 'FALTANTE'
+        END AS TipoDiferencia
       FROM dbo.Saldos AS s 
       INNER JOIN dbo.Productos AS p ON s.codpro = p.CodPro
+      LEFT JOIN dbo.ConteosFisicos AS cf ON 
+        s.codpro = cf.CodPro 
+        AND s.almacen = cf.Almacen 
+        AND ISNULL(s.lote, '') = cf.Lote
+        AND ISNULL(s.vencimiento, '1900-01-01') = cf.Vencimiento
+        AND cf.Estado = 'ACTIVO'
       WHERE LEFT(s.codpro, 2) = @codigoProducto
       ORDER BY s.codpro, s.almacen, s.lote
     `;
@@ -85,6 +99,9 @@ router.get('/export', async (req, res) => {
       { header: 'Lote', key: 'lote', width: 18 },
       { header: 'Vencimiento', key: 'vencimiento', width: 20 },
       { header: 'Saldo', key: 'saldo', width: 12 },
+      { header: 'Físico', key: 'fisico', width: 12 },
+      { header: 'Diferencia', key: 'diferencia', width: 12 },
+      { header: 'Tipo Diferencia', key: 'tipoDiferencia', width: 15 },
       { header: 'Protocolo', key: 'protocolo', width: 15 }
     ];
 
@@ -97,6 +114,9 @@ router.get('/export', async (req, res) => {
         lote: row.lote || '',
         vencimiento: row.vencimiento ? new Date(row.vencimiento) : '',
         saldo: row.saldo || 0,
+        fisico: row.Fisico || '',
+        diferencia: row.Diferencia || '',
+        tipoDiferencia: row.TipoDiferencia || 'SIN CONTEO',
         protocolo: row.protocolo || ''
       });
     });
@@ -112,7 +132,7 @@ router.get('/export', async (req, res) => {
     // Agregar autofiltro
     worksheet.autoFilter = {
       from: 'A1',
-      to: 'G1'
+      to: 'J1'
     };
 
     // Aplicar formato de cabecera
@@ -126,6 +146,34 @@ router.get('/export', async (req, res) => {
     worksheet.getRow(1).border = {
       bottom: { style: 'thin', color: { argb: 'FFB4B4B4' } }
     };
+
+    // Aplicar formato condicional a las columnas de conteo físico
+    worksheet.eachRow((row, rowNumber) => {
+      if (rowNumber > 1) { // Saltar la fila de cabecera
+        const tipoDiferencia = row.getCell('tipoDiferencia').value;
+        const diferenciaCell = row.getCell('diferencia');
+        const fisicoCell = row.getCell('fisico');
+        
+        // Colorear según el tipo de diferencia
+        switch (tipoDiferencia) {
+          case 'SOBRANTE':
+            diferenciaCell.font = { color: { argb: 'FF00B050' } }; // Verde
+            fisicoCell.font = { color: { argb: 'FF0070C0' } }; // Azul
+            break;
+          case 'FALTANTE':
+            diferenciaCell.font = { color: { argb: 'FFC00000' } }; // Rojo
+            fisicoCell.font = { color: { argb: 'FF0070C0' } }; // Azul
+            break;
+          case 'CUADRADO':
+            diferenciaCell.font = { color: { argb: 'FF7F7F7F' } }; // Gris
+            fisicoCell.font = { color: { argb: 'FF0070C0' } }; // Azul
+            break;
+          case 'SIN CONTEO':
+            diferenciaCell.font = { color: { argb: 'FF7F7F7F' } }; // Gris
+            break;
+        }
+      }
+    });
 
     // Preparar respuesta
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
