@@ -433,4 +433,123 @@ router.get('/observaciones/:documento', async (req, res) => {
   }
 });
 
+/**
+ * GET /cliente-documento/:numero
+ * Obtiene información del cliente basándose en el número de documento
+ * Busca en DoccabPed y Doccab para obtener CodClie, luego busca en Clientes
+ */
+router.get('/cliente-documento/:numero', async (req, res) => {
+  try {
+    const { numero } = req.params;
+    const numeroTrimmed = numero.trim();
+    
+    console.log(`Buscando cliente para documento: "${numeroTrimmed}"`);
+    
+    // Array de consultas para buscar el CodClie en las tablas de cabecera
+    const cabeceraQueries = [
+      {
+        name: 'DoccabPed',
+        query: `
+          SELECT TOP 1 Numero, CodClie, Fecha, Total
+          FROM DoccabPed WITH(NOLOCK)
+          WHERE Numero = @numero
+        `
+      },
+      {
+        name: 'Doccab',
+        query: `
+          SELECT TOP 1 Numero, CodClie, Fecha, Total
+          FROM Doccab WITH(NOLOCK)
+          WHERE Numero = @numero
+        `
+      }
+    ];
+
+    let datosCabecera = null;
+    let tablaEncontrada = '';
+
+    // Probar cada consulta hasta encontrar el documento
+    for (const queryInfo of cabeceraQueries) {
+      try {
+        console.log(`Buscando en ${queryInfo.name}...`);
+        const result = await executeQuery(queryInfo.query, { numero: numeroTrimmed });
+        
+        if (result.recordset && result.recordset.length > 0) {
+          console.log(`Documento encontrado en ${queryInfo.name}`);
+          datosCabecera = result.recordset[0];
+          tablaEncontrada = queryInfo.name;
+          break;
+        }
+      } catch (queryError) {
+        console.log(`Error en ${queryInfo.name}:`, queryError.message);
+        continue;
+      }
+    }
+
+    if (!datosCabecera) {
+      return res.json({
+        success: false,
+        message: `No se encontró el documento: ${numeroTrimmed} en las tablas de cabecera`,
+        documento: numeroTrimmed
+      });
+    }
+
+    // Buscar información del cliente con el CodClie encontrado
+    const clienteQuery = `
+      SELECT 
+        Codclie,
+        Documento as RUC,
+        Razon as NombreCliente,
+        Direccion,
+        Celular,
+        Email
+      FROM Clientes WITH(NOLOCK)
+      WHERE Codclie = @codclie
+    `;
+
+    try {
+      const clienteResult = await executeQuery(clienteQuery, { codclie: datosCabecera.CodClie });
+      
+      if (clienteResult.recordset && clienteResult.recordset.length > 0) {
+        const datosCliente = clienteResult.recordset[0];
+        
+        res.json({
+          success: true,
+          documento: numeroTrimmed,
+          tabla: tablaEncontrada,
+          cabecera: datosCabecera,
+          cliente: datosCliente
+        });
+      } else {
+        res.json({
+          success: false,
+          message: `No se encontró información del cliente con código: ${datosCabecera.CodClie}`,
+          documento: numeroTrimmed,
+          tabla: tablaEncontrada,
+          cabecera: datosCabecera,
+          cliente: null
+        });
+      }
+    } catch (clienteError) {
+      console.error('Error al buscar cliente:', clienteError);
+      res.json({
+        success: false,
+        message: `Error al buscar información del cliente: ${clienteError.message}`,
+        documento: numeroTrimmed,
+        tabla: tablaEncontrada,
+        cabecera: datosCabecera,
+        cliente: null
+      });
+    }
+
+  } catch (error) {
+    console.error('Error al buscar cliente por documento:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Error al buscar cliente',
+      details: error.message
+    });
+  }
+});
+
 module.exports = router;
