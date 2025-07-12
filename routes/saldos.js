@@ -19,9 +19,23 @@ router.get('/', async (req, res) => {
         s.lote,
         s.vencimiento,
         s.saldo,
-        s.protocolo
+        s.protocolo,
+        cf.Fisico,
+        (cf.Fisico - s.saldo) AS Diferencia,
+        CASE 
+          WHEN cf.Fisico IS NULL THEN 'SIN CONTEO'
+          WHEN (cf.Fisico - s.saldo) = 0 THEN 'CUADRADO'
+          WHEN (cf.Fisico - s.saldo) > 0 THEN 'SOBRANTE'
+          WHEN (cf.Fisico - s.saldo) < 0 THEN 'FALTANTE'
+        END AS TipoDiferencia
       FROM dbo.Saldos AS s 
       INNER JOIN dbo.Productos AS p ON s.codpro = p.CodPro
+      LEFT JOIN dbo.ConteosFisicos AS cf ON 
+  s.codpro = cf.CodPro 
+  AND s.almacen = cf.Almacen 
+  AND ISNULL(s.lote, '') = ISNULL(cf.Lote, '')
+  AND CONVERT(date, ISNULL(s.vencimiento, '1900-01-01')) = CONVERT(date, ISNULL(cf.Vencimiento, '1900-01-01'))
+  AND cf.Estado = 'ACTIVO'
       WHERE LEFT(s.codpro, 2) = @codigoProducto
       ORDER BY s.codpro, s.almacen, s.lote
     `;
