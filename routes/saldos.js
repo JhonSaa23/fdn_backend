@@ -91,7 +91,7 @@ router.get('/export', async (req, res) => {
         s.codpro = cf.CodPro 
         AND s.almacen = cf.Almacen 
         AND ISNULL(s.lote, '') = cf.Lote
-        AND ISNULL(s.vencimiento, '1900-01-01') = cf.Vencimiento
+        AND CONVERT(date, ISNULL(s.vencimiento, '1900-01-01')) = CONVERT(date, ISNULL(cf.Vencimiento, '1900-01-01'))
         AND cf.Estado = 'ACTIVO'
       WHERE LEFT(s.codpro, 2) = @codigoProducto
       ORDER BY s.codpro, s.almacen, s.lote
