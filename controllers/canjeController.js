@@ -909,7 +909,8 @@ exports.listarCabGuias = async (req, res) => {
     try {
         console.log('🔍 Obteniendo lista de cabeceras de guías...');
         const result = await dbService.executeQuery(
-            `SELECT Numero, Docventa, Fecha, Empresa, PtoLLegada FROM doccabguia WHERE numero LIKE '%T002%' ORDER BY numero DESC`
+            `
+SELECT Numero, Docventa, Fecha, Empresa, PtoLLegada FROM doccabguia WHERE numero LIKE '%T002%' and Fecha >= '06/01/2025' ORDER BY numero DESC`
         );
         
         console.log(`✅ Se encontraron ${result.recordset.length} cabeceras de guías`);
