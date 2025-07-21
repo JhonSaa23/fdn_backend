@@ -20,6 +20,8 @@ const pedidosRoutes = require('./routes/pedidos');
 const saldosRoutes = require('./routes/saldos');
 const { getConnection } = require('./database');
 const productosRoutes = require('./routes/productos');
+const canjeRoutes = require('./routes/canjeRoutes');
+const guiasVentaRoutes = require('./routes/guiasVentaRoutes');
 
 const app = express();
 
@@ -78,6 +80,8 @@ app.use('/api/bonificaciones', bonificacionesRoutes);
 app.use('/api/pedidos', pedidosRoutes);
 app.use('/api/saldos', saldosRoutes);
 app.use('/api/productos', productosRoutes);
+app.use('/api', canjeRoutes);
+app.use('/api/guias-venta', guiasVentaRoutes);
 
 // Ruta de prueba
 app.get('/', (req, res) => {

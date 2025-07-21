@@ -60,4 +60,33 @@ router.get('/consulta/:codigos', async (req, res) => {
     }
 });
 
+// Endpoint para verificar saldos de productos
+router.post('/verificar-saldos', async (req, res) => {
+    try {
+        const { cod, lote, alma } = req.body;
+        const pool = await getConnection();
+        
+        // Ejecutar el stored procedure para verificar saldos
+        const result = await pool.request()
+            .input('cod', sql.VarChar, cod)
+            .input('lote', sql.VarChar, lote)
+            .input('alma', sql.Int, alma)
+            .execute('sp_productos_buscaSaldosX');
+        
+        res.json({ 
+            success: true, 
+            data: result.recordset,
+            message: 'Saldos verificados correctamente'
+        });
+        
+    } catch (error) {
+        console.error('Error al verificar saldos:', error);
+        res.status(500).json({ 
+            success: false, 
+            message: 'Error al verificar saldos', 
+            error: error.message 
+        });
+    }
+});
+
 module.exports = router; 
