@@ -5,7 +5,7 @@ const sql = require('mssql');
 exports.listarLaboratorios = async (req, res) => {
     try {
         const result = await dbService.executeQuery(
-            "SELECT codlab, LEFT(Descripcion,50) as Descripcion, Mantiene FROM Laboratorios WHERE Mantiene=1 ORDER BY Descripcion"
+            "exec sp_Laboratorios_listar"
         );
         res.status(200).json({ success: true, data: result.recordset });
     } catch (error) {
