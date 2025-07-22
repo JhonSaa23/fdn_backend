@@ -393,7 +393,7 @@ router.delete('/:numero', async (req, res) => {
     // Ejecutar el procedimiento almacenado para eliminar el pedido
     console.log(`🗑️ Ejecutando eliminación para pedido: ${numero}`);
     const eliminarQuery = `
-      EXEC sp_PedidosVentas_elimina @numero = @numero
+      EXEC sp_PedidosVentas_elimina @nume = @numero
     `;
 
     await pool.request()
