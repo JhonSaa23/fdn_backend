@@ -265,13 +265,14 @@ router.get('/:numero', async (req, res) => {
 
 // Autorizar pedido (ejecutar procedimiento almacenado)
 router.post('/autorizar/:numero', async (req, res) => {
+  console.log(`🚀 INICIO - Autorizando pedido: ${req.params.numero}`);
   try {
     const pool = await getConnection();
     const { numero } = req.params;
 
     // Primero verificar que el pedido existe y está en estado 1 (Crédito)
     const verificarQuery = `
-      SELECT Estado FROM DoccabPed WHERE Numero = @numero
+      SELECT Estado, Observacion FROM DoccabPed WHERE Numero = @numero
     `;
     
     const verificarResult = await pool.request()
@@ -285,7 +286,8 @@ router.post('/autorizar/:numero', async (req, res) => {
       });
     }
 
-    const estadoActual = verificarResult.recordset[0].Estado;
+    const pedido = verificarResult.recordset[0];
+    const estadoActual = pedido.Estado;
     
     if (estadoActual !== 1) {
       return res.status(400).json({
@@ -295,8 +297,9 @@ router.post('/autorizar/:numero', async (req, res) => {
       });
     }
 
-    // Ejecutar el procedimiento almacenado
-    const query = `
+    // Ejecutar el procedimiento almacenado para autorizar el crédito
+    console.log(`🔄 Ejecutando autorización para pedido: ${numero}`);
+    const autorizarQuery = `
       EXEC sp_pedidoVenta_autorizaC
         @nume = @numero,
         @estado = 1,
@@ -305,8 +308,49 @@ router.post('/autorizar/:numero', async (req, res) => {
 
     await pool.request()
       .input('numero', numero)
-      .query(query);
+      .query(autorizarQuery);
+    console.log(`✅ Autorización ejecutada exitosamente para pedido: ${numero}`);
 
+    // Agregar observación del pedido usando sp_pedidoVenta_autorizaC1
+    if (pedido.Observacion && pedido.Observacion.trim() !== '') {
+      console.log(`📝 Agregando observación para pedido: ${numero}`);
+      console.log(`📝 Observación: "${pedido.Observacion.trim()}"`);
+      
+      const observacionQuery = `
+        EXEC sp_pedidoVenta_autorizaC1
+          @nume = @numero,
+          @observa = @observacion
+      `;
+
+      await pool.request()
+        .input('numero', numero)
+        .input('observacion', pedido.Observacion.trim())
+        .query(observacionQuery);
+      console.log(`✅ Observación agregada exitosamente para pedido: ${numero}`);
+    } else {
+      console.log(`ℹ️ No hay observación para agregar en pedido: ${numero}`);
+    }
+
+    // Insertar registro en la tabla de auditoría
+    console.log(`📊 Insertando registro en auditoría para pedido: ${numero}`);
+    const auditoriaQuery = `
+      INSERT INTO t_accountig (Fecha, Operador, UsuarioSO, Maquina, Opcion, Accion, Formulario, Detalle)
+      VALUES (GETDATE(), @operador, @usuarioSO, @maquina, @opcion, @accion, @formulario, @detalle)
+    `;
+
+    await pool.request()
+      .input('operador', 'Administrador')
+      .input('usuarioSO', 'X')
+      .input('maquina', 'SERVER')
+      .input('opcion', 'Ventas-Autoriza Creditos')
+      .input('accion', 'Registrar autorización de crédito')
+      .input('formulario', 'frmAutoCred')
+      .input('detalle', numero)
+      .query(auditoriaQuery);
+    console.log(`✅ Registro de auditoría insertado exitosamente para pedido: ${numero}`);
+    console.log(`📊 Datos de auditoría: Operador=Administrador, Opcion=Ventas-Autoriza Creditos, Accion=Registrar autorización de crédito, Formulario=frmAutoCred, Detalle=${numero}`);
+
+    console.log(`🎉 FINALIZADO - Autorización completada para pedido: ${numero}`);
     res.json({
       success: true,
       message: `Pedido ${numero} autorizado correctamente. Estado cambiado de Crédito a Comercial.`
@@ -321,6 +365,80 @@ router.post('/autorizar/:numero', async (req, res) => {
     });
   }
 });
+
+// Eliminar pedido
+router.delete('/:numero', async (req, res) => {
+  try {
+    const pool = await getConnection();
+    const { numero } = req.params;
+
+    // Primero verificar que el pedido existe
+    const verificarQuery = `
+      SELECT Estado, CodClie FROM DoccabPed WHERE Numero = @numero
+    `;
+    
+    const verificarResult = await pool.request()
+      .input('numero', numero)
+      .query(verificarQuery);
+
+    if (verificarResult.recordset.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: 'Pedido no encontrado'
+      });
+    }
+
+    const pedido = verificarResult.recordset[0];
+
+    // Ejecutar el procedimiento almacenado para eliminar el pedido
+    console.log(`🗑️ Ejecutando eliminación para pedido: ${numero}`);
+    const eliminarQuery = `
+      EXEC sp_PedidosVentas_elimina @numero = @numero
+    `;
+
+    await pool.request()
+      .input('numero', numero)
+      .query(eliminarQuery);
+    console.log(`✅ Eliminación ejecutada exitosamente para pedido: ${numero}`);
+
+    // Insertar registro en la tabla de auditoría
+    console.log(`📊 Insertando registro en auditoría para eliminación de pedido: ${numero}`);
+    const auditoriaQuery = `
+      INSERT INTO t_accountig (Fecha, Operador, UsuarioSO, Maquina, Opcion, Accion, Formulario, Detalle)
+      VALUES (GETDATE(), @operador, @usuarioSO, @maquina, @opcion, @accion, @formulario, @detalle)
+    `;
+
+    const detalle = `${numero}->Cliente:${pedido.CodClie}`;
+    console.log(`📊 Detalle de eliminación: ${detalle}`);
+    
+    await pool.request()
+      .input('operador', 'Administrador')
+      .input('usuarioSO', 'X')
+      .input('maquina', 'SERVER')
+      .input('opcion', 'Ventas-Pedido de Ventas')
+      .input('accion', 'Eliminar Pedido de ventas')
+      .input('formulario', 'frmPedidosVentas')
+      .input('detalle', detalle)
+      .query(auditoriaQuery);
+    console.log(`✅ Registro de auditoría de eliminación insertado exitosamente para pedido: ${numero}`);
+    console.log(`📊 Datos de auditoría: Operador=Administrador, Opcion=Ventas-Pedido de Ventas, Accion=Eliminar Pedido de ventas, Formulario=frmPedidosVentas, Detalle=${detalle}`);
+
+    res.json({
+      success: true,
+      message: `Pedido ${numero} eliminado correctamente`
+    });
+
+  } catch (error) {
+    console.error('Error al eliminar pedido:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Error al eliminar el pedido',
+      details: error.message
+    });
+  }
+});
+
+
 
 // Obtener lista de estados disponibles
 router.get('/utils/estados', (req, res) => {
