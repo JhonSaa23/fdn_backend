@@ -160,7 +160,7 @@ router.post('/autorizar', async (req, res) => {
     if (codigosAutorizados === codigosArray.length) {
       mensaje = `${codigosAutorizados} código${codigosAutorizados > 1 ? 's' : ''} autorizado${codigosAutorizados > 1 ? 's' : ''} correctamente`;
     } else if (codigosAutorizados > 0) {
-      mensaje = `${codigosAutorizados} de ${codigosArray.length} códigos autorizados. ${errores.length} errores.`;
+      mensaje = `${codigosAutorizados} código${codigosAutorizados > 1 ? 's' : ''} autorizado${codigosAutorizados > 1 ? 's' : ''}. ${errores.length} errores.`;
     } else {
       mensaje = `No se pudo autorizar ningún código. Errores: ${errores.join(', ')}`;
     }
@@ -174,6 +174,59 @@ router.post('/autorizar', async (req, res) => {
   } catch (error) {
     console.error('Error al autorizar códigos:', error);
     res.status(500).json({ message: 'Error al autorizar códigos' });
+  }
+});
+
+// Buscar guías por serie
+router.get('/guias-serie/:serie', async (req, res) => {
+  try {
+    const serie = req.params.serie.trim();
+    
+    if (!serie) {
+      return res.status(400).json({ message: 'Serie requerida' });
+    }
+    
+    const query = `
+      SELECT TOP 50
+        Numero,
+        Docventa,
+        TipoDoc,
+        Fecha,
+        Empresa,
+        Ruc,
+        Placa,
+        PtoLLegada,
+        Destino,
+        CAST(Eliminado AS INT) as Eliminado,
+        CAST(Impreso AS INT) as Impreso,
+        Peso
+      FROM DoccabGuia 
+      WHERE LEFT(Numero, 4) = @serie 
+      ORDER BY Numero DESC
+    `;
+    
+    const result = await executeQuery(query, { serie });
+    
+    // Formatear los datos para el frontend
+    const guias = result.recordset.map(guia => ({
+      ...guia,
+      Eliminado: parseInt(guia.Eliminado, 10),
+      Impreso: parseInt(guia.Impreso, 10),
+      Fecha: guia.Fecha ? new Date(guia.Fecha).toLocaleString('es-ES') : null
+    }));
+    
+    res.json({
+      success: true,
+      data: guias,
+      total: guias.length,
+      serie: serie
+    });
+  } catch (error) {
+    console.error('Error al buscar guías por serie:', error);
+    res.status(500).json({ 
+      success: false,
+      message: 'Error al buscar guías por serie' 
+    });
   }
 });
 
