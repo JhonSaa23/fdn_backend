@@ -89,4 +89,88 @@ router.post('/verificar-saldos', async (req, res) => {
     }
 });
 
+// Endpoint para obtener laboratorios para productos
+router.get('/laboratorios', async (req, res) => {
+    try {
+        const pool = await getConnection();
+        
+        console.log('🔍 Ejecutando sp_Laboratorios_listar');
+        
+        // Ejecutar el stored procedure para listar laboratorios
+        const result = await pool.request()
+            .execute('sp_Laboratorios_listar');
+        
+        console.log('✅ Laboratorios obtenidos:', result.recordset.length);
+        
+        res.json({ 
+            success: true, 
+            data: result.recordset,
+            message: 'Laboratorios cargados correctamente'
+        });
+        
+    } catch (error) {
+        console.error('❌ Error al cargar laboratorios:', error);
+        res.status(500).json({ 
+            success: false, 
+            message: 'Error al cargar laboratorios', 
+            error: error.message 
+        });
+    }
+});
+
+// Endpoint para obtener productos por laboratorio
+router.get('/laboratorio/:codlab', async (req, res) => {
+    try {
+        const { codlab } = req.params;
+        const pool = await getConnection();
+        
+        // Asegurar que el codlab tenga el formato correcto con espacios (ej: '00  ')
+        const formattedCodlab = codlab.trim().padEnd(4, ' ');
+        console.log('🔍 Ejecutando sp_produmal_canje con codlab:', `'${formattedCodlab}'`);
+        
+        // Ejecutar el stored procedure para obtener productos del laboratorio
+        console.log('🔍 Ejecutando sp_produmal_canje con labo:', `'${formattedCodlab}'`);
+        
+        const result = await pool.request()
+            .input('labo', sql.VarChar, formattedCodlab)
+            .execute('sp_produmal_canje');
+        
+        console.log('✅ Productos obtenidos:', result.recordset.length);
+        
+        // Mostrar los primeros 3 productos para debug
+        if (result.recordset.length > 0) {
+            console.log('📋 Primeros productos:', result.recordset.slice(0, 3).map(p => ({
+                codpro: p.codpro,
+                nombre: p.nombre,
+                lote: p.lote,
+                vencimiento: p.vencimiento,
+                unidades: p.unidades,
+                Fecha: p.Fecha
+            })));
+        }
+        
+        res.json({ 
+            success: true, 
+            data: result.recordset,
+            message: 'Productos cargados correctamente'
+        });
+        
+    } catch (error) {
+        console.error('❌ Error al cargar productos del laboratorio:', error);
+        console.error('❌ Error details:', {
+            message: error.message,
+            code: error.code,
+            state: error.state,
+            stack: error.stack
+        });
+        res.status(500).json({ 
+            success: false, 
+            message: 'Error al cargar productos del laboratorio', 
+            error: error.message 
+        });
+    }
+});
+
+
+
 module.exports = router; 
