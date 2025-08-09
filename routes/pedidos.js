@@ -297,19 +297,56 @@ router.post('/autorizar/:numero', async (req, res) => {
       });
     }
 
+    // Verificar el estado del campo "Autoriza" en el detalle del pedido
+    console.log(`🔍 Verificando estado de autorización en detalle del pedido: ${numero}`);
+    const verificarAutorizacionQuery = `
+      SELECT Autoriza FROM DocdetPed WHERE numero = @numero
+    `;
+    
+    const autorizacionResult = await pool.request()
+      .input('numero', numero)
+      .query(verificarAutorizacionQuery);
+
+    if (autorizacionResult.recordset.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: 'No se encontró detalle del pedido'
+      });
+    }
+
+    // Determinar el estado final basado en el campo Autoriza
+    const detalles = autorizacionResult.recordset;
+    const tieneProductosParaAutorizar = detalles.some(detalle => detalle.Autoriza === 1);
+    
+    let estadoFinal;
+    let mensajeEstado;
+    
+    if (tieneProductosParaAutorizar) {
+      // Si algún producto tiene Autoriza = 1, pasar a estado 2 (Comercial)
+      estadoFinal = 2;
+      mensajeEstado = 'Comercial';
+      console.log(`📋 Pedido ${numero} tiene productos que requieren autorización. Pasando a estado Comercial (2)`);
+    } else {
+      // Si ningún producto tiene Autoriza = 1, pasar directamente a estado 3 (Por Facturar)
+      estadoFinal = 3;
+      mensajeEstado = 'Por Facturar';
+      console.log(`📋 Pedido ${numero} no tiene productos que requieran autorización. Pasando directamente a estado Por Facturar (3)`);
+    }
+
     // Ejecutar el procedimiento almacenado para autorizar el crédito
-    console.log(`🔄 Ejecutando autorización para pedido: ${numero}`);
+    console.log(`🔄 Ejecutando autorización para pedido: ${numero} hacia estado ${estadoFinal} (${mensajeEstado})`);
     const autorizarQuery = `
       EXEC sp_pedidoVenta_autorizaC
         @nume = @numero,
         @estado = 1,
-        @nestado = 2
+        @nestado = @estadoFinal
     `;
 
     await pool.request()
       .input('numero', numero)
+      .input('estadoFinal', estadoFinal)
       .query(autorizarQuery);
-    console.log(`✅ Autorización ejecutada exitosamente para pedido: ${numero}`);
+    console.log(`✅ Autorización ejecutada exitosamente para pedido: ${numero} hacia estado ${estadoFinal}`);
 
     // Agregar observación del pedido usando sp_pedidoVenta_autorizaC1
     if (pedido.Observacion && pedido.Observacion.trim() !== '') {
@@ -353,7 +390,10 @@ router.post('/autorizar/:numero', async (req, res) => {
     console.log(`🎉 FINALIZADO - Autorización completada para pedido: ${numero}`);
     res.json({
       success: true,
-      message: `Pedido ${numero} autorizado correctamente. Estado cambiado de Crédito a Comercial.`
+      message: `Pedido ${numero} autorizado correctamente. Estado cambiado de Crédito a ${mensajeEstado}.`,
+      estadoFinal: estadoFinal,
+      estadoFinalDescripcion: mensajeEstado,
+      tieneProductosParaAutorizar: tieneProductosParaAutorizar
     });
 
   } catch (error) {
