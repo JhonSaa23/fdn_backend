@@ -448,7 +448,14 @@ router.post('/autorizar/:numero', async (req, res) => {
 
     // Determinar el estado final basado en el campo Autoriza
     const detalles = autorizacionResult.recordset;
-    const tieneProductosParaAutorizar = detalles.some(detalle => detalle.Autoriza === 1);
+    
+    // Debug: Log de todos los valores de Autoriza
+    console.log(`🔍 Valores de Autoriza para pedido ${numeroLimpio}:`);
+    detalles.forEach((detalle, index) => {
+      console.log(`  Producto ${index + 1}: Autoriza = ${detalle.Autoriza} (tipo: ${typeof detalle.Autoriza})`);
+    });
+    
+    const tieneProductosParaAutorizar = detalles.some(detalle => detalle.Autoriza === 1 || detalle.Autoriza === true);
     
     let estadoFinal;
     let mensajeEstado;
