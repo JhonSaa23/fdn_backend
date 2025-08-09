@@ -214,7 +214,7 @@ router.get('/default', async (req, res) => {
   }
 });
 
-// Obtener detalle completo de un pedido
+// Obtener detalle completo de un pedido (cabecera)
 router.get('/:numero', async (req, res) => {
   try {
     const pool = await getConnection();
@@ -263,12 +263,144 @@ router.get('/:numero', async (req, res) => {
   }
 });
 
+// Obtener detalle completo de productos de un pedido
+router.get('/:numero/productos', async (req, res) => {
+  try {
+    const pool = await getConnection();
+    const { numero } = req.params;
+    
+    // Limpiar el número del pedido (eliminar espacios al inicio y final)
+    const numeroLimpio = numero.trim();
+    
+    console.log(`🔍 Obteniendo productos del pedido: "${numeroLimpio}"`);
+
+    // Primero verificar que el pedido existe
+    const verificarPedidoQuery = `
+      SELECT Numero, Estado FROM DoccabPed WHERE Numero = @numero
+    `;
+    
+    const verificarResult = await pool.request()
+      .input('numero', numeroLimpio)
+      .query(verificarPedidoQuery);
+
+    if (verificarResult.recordset.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: 'Pedido no encontrado'
+      });
+    }
+
+    // Obtener todos los productos del pedido (solo datos de DocdetPed)
+    const productosQuery = `
+      SELECT 
+        dp.Numero,
+        dp.CodPro,
+        dp.Unimed,
+        dp.Cantidad,
+        dp.Precio,
+        dp.Descuento1,
+        dp.Descuento2,
+        dp.Descuento3,
+        dp.Adicional,
+        dp.Unidades,
+        dp.Subtotal,
+        dp.Paquete,
+        dp.Editado,
+        dp.Autoriza,
+        dp.Nbonif
+      FROM DocdetPed dp
+      WHERE dp.numero = @numero
+      ORDER BY dp.CodPro
+    `;
+
+    const productosResult = await pool.request()
+      .input('numero', numeroLimpio)
+      .query(productosQuery);
+
+    console.log(`✅ Productos obtenidos exitosamente para pedido: ${numeroLimpio}`);
+    console.log(`📊 Total de productos encontrados: ${productosResult.recordset.length}`);
+
+    // Agregar información adicional a cada producto
+    const productos = productosResult.recordset.map(producto => {
+      // Calcular descuento total (suma de los 3 descuentos)
+      const descuentoTotal = (producto.Descuento1 || 0) + (producto.Descuento2 || 0) + (producto.Descuento3 || 0);
+      
+      // Debug: Log del valor de Autoriza para cada producto
+      console.log(`🔍 Producto ${producto.CodPro}: Autoriza = ${producto.Autoriza} (tipo: ${typeof producto.Autoriza})`);
+      
+      const requiereAutorizacion = producto.Autoriza === 1 || producto.Autoriza === true;
+      
+      return {
+        ...producto,
+        // Agregar campos calculados
+        SubtotalCalculado: producto.Cantidad * producto.Precio,
+        TotalConDescuento: (producto.Cantidad * producto.Precio) * (1 - descuentoTotal / 100),
+        DescuentoTotal: descuentoTotal,
+        RequiereAutorizacion: requiereAutorizacion,
+        EstadoAutorizacion: requiereAutorizacion ? 'Requiere Autorización' : 'No Requiere Autorización'
+      };
+    });
+
+    // Obtener resumen del pedido
+    const resumenQuery = `
+      SELECT 
+        COUNT(*) as TotalProductos,
+        SUM(Cantidad) as TotalCantidad,
+        SUM(Cantidad * Precio) as Subtotal,
+        SUM(Cantidad * Precio * (1 - (ISNULL(Descuento1, 0) + ISNULL(Descuento2, 0) + ISNULL(Descuento3, 0)) / 100)) as SubtotalConDescuento,
+        SUM(CASE WHEN Autoriza = 1 OR Autoriza = 1 THEN 1 ELSE 0 END) as ProductosRequierenAutorizacion,
+        SUM(CASE WHEN Autoriza = 0 OR Autoriza = 0 THEN 1 ELSE 0 END) as ProductosNoRequierenAutorizacion
+      FROM DocdetPed 
+      WHERE numero = @numero
+    `;
+
+    const resumenResult = await pool.request()
+      .input('numero', numeroLimpio)
+      .query(resumenQuery);
+
+    const resumen = resumenResult.recordset[0];
+
+    res.json({
+      success: true,
+      data: {
+        numero: numeroLimpio,
+        productos: productos,
+        resumen: {
+          totalProductos: resumen.TotalProductos,
+          totalCantidad: resumen.TotalCantidad,
+          subtotal: resumen.Subtotal,
+          subtotalConDescuento: resumen.SubtotalConDescuento,
+          productosRequierenAutorizacion: resumen.ProductosRequierenAutorizacion,
+          productosNoRequierenAutorizacion: resumen.ProductosNoRequierenAutorizacion,
+          porcentajeRequiereAutorizacion: resumen.TotalProductos > 0 ? 
+            Math.round((resumen.ProductosRequierenAutorizacion / resumen.TotalProductos) * 100) : 0
+        },
+        pedido: verificarResult.recordset[0]
+      },
+      message: `Detalle de productos obtenido exitosamente para pedido ${numeroLimpio}`
+    });
+
+  } catch (error) {
+    console.error('Error al obtener productos del pedido:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Error al obtener los productos del pedido',
+      details: error.message
+    });
+  }
+});
+
 // Autorizar pedido (ejecutar procedimiento almacenado)
 router.post('/autorizar/:numero', async (req, res) => {
   console.log(`🚀 INICIO - Autorizando pedido: ${req.params.numero}`);
   try {
     const pool = await getConnection();
     const { numero } = req.params;
+    
+    // Limpiar el número del pedido (eliminar espacios al inicio y final)
+    const numeroLimpio = numero.trim();
+    
+    console.log(`🚀 INICIO - Autorizando pedido: "${numeroLimpio}"`);
 
     // Primero verificar que el pedido existe y está en estado 1 (Crédito)
     const verificarQuery = `
@@ -276,7 +408,7 @@ router.post('/autorizar/:numero', async (req, res) => {
     `;
     
     const verificarResult = await pool.request()
-      .input('numero', numero)
+      .input('numero', numeroLimpio)
       .query(verificarQuery);
 
     if (verificarResult.recordset.length === 0) {
@@ -298,13 +430,13 @@ router.post('/autorizar/:numero', async (req, res) => {
     }
 
     // Verificar el estado del campo "Autoriza" en el detalle del pedido
-    console.log(`🔍 Verificando estado de autorización en detalle del pedido: ${numero}`);
+    console.log(`🔍 Verificando estado de autorización en detalle del pedido: ${numeroLimpio}`);
     const verificarAutorizacionQuery = `
       SELECT Autoriza FROM DocdetPed WHERE numero = @numero
     `;
     
     const autorizacionResult = await pool.request()
-      .input('numero', numero)
+      .input('numero', numeroLimpio)
       .query(verificarAutorizacionQuery);
 
     if (autorizacionResult.recordset.length === 0) {
@@ -325,16 +457,16 @@ router.post('/autorizar/:numero', async (req, res) => {
       // Si algún producto tiene Autoriza = 1, pasar a estado 2 (Comercial)
       estadoFinal = 2;
       mensajeEstado = 'Comercial';
-      console.log(`📋 Pedido ${numero} tiene productos que requieren autorización. Pasando a estado Comercial (2)`);
+      console.log(`📋 Pedido ${numeroLimpio} tiene productos que requieren autorización. Pasando a estado Comercial (2)`);
     } else {
       // Si ningún producto tiene Autoriza = 1, pasar directamente a estado 3 (Por Facturar)
       estadoFinal = 3;
       mensajeEstado = 'Por Facturar';
-      console.log(`📋 Pedido ${numero} no tiene productos que requieran autorización. Pasando directamente a estado Por Facturar (3)`);
+      console.log(`📋 Pedido ${numeroLimpio} no tiene productos que requieran autorización. Pasando directamente a estado Por Facturar (3)`);
     }
 
     // Ejecutar el procedimiento almacenado para autorizar el crédito
-    console.log(`🔄 Ejecutando autorización para pedido: ${numero} hacia estado ${estadoFinal} (${mensajeEstado})`);
+    console.log(`🔄 Ejecutando autorización para pedido: ${numeroLimpio} hacia estado ${estadoFinal} (${mensajeEstado})`);
     const autorizarQuery = `
       EXEC sp_pedidoVenta_autorizaC
         @nume = @numero,
@@ -343,14 +475,14 @@ router.post('/autorizar/:numero', async (req, res) => {
     `;
 
     await pool.request()
-      .input('numero', numero)
+      .input('numero', numeroLimpio)
       .input('estadoFinal', estadoFinal)
       .query(autorizarQuery);
-    console.log(`✅ Autorización ejecutada exitosamente para pedido: ${numero} hacia estado ${estadoFinal}`);
+    console.log(`✅ Autorización ejecutada exitosamente para pedido: ${numeroLimpio} hacia estado ${estadoFinal}`);
 
     // Agregar observación del pedido usando sp_pedidoVenta_autorizaC1
     if (pedido.Observacion && pedido.Observacion.trim() !== '') {
-      console.log(`📝 Agregando observación para pedido: ${numero}`);
+      console.log(`📝 Agregando observación para pedido: ${numeroLimpio}`);
       console.log(`📝 Observación: "${pedido.Observacion.trim()}"`);
       
       const observacionQuery = `
@@ -360,16 +492,16 @@ router.post('/autorizar/:numero', async (req, res) => {
       `;
 
       await pool.request()
-        .input('numero', numero)
+        .input('numero', numeroLimpio)
         .input('observacion', pedido.Observacion.trim())
         .query(observacionQuery);
-      console.log(`✅ Observación agregada exitosamente para pedido: ${numero}`);
+      console.log(`✅ Observación agregada exitosamente para pedido: ${numeroLimpio}`);
     } else {
-      console.log(`ℹ️ No hay observación para agregar en pedido: ${numero}`);
+      console.log(`ℹ️ No hay observación para agregar en pedido: ${numeroLimpio}`);
     }
 
     // Insertar registro en la tabla de auditoría
-    console.log(`📊 Insertando registro en auditoría para pedido: ${numero}`);
+    console.log(`📊 Insertando registro en auditoría para pedido: ${numeroLimpio}`);
     const auditoriaQuery = `
       INSERT INTO t_accountig (Fecha, Operador, UsuarioSO, Maquina, Opcion, Accion, Formulario, Detalle)
       VALUES (GETDATE(), @operador, @usuarioSO, @maquina, @opcion, @accion, @formulario, @detalle)
@@ -382,15 +514,15 @@ router.post('/autorizar/:numero', async (req, res) => {
       .input('opcion', 'Ventas-Autoriza Creditos')
       .input('accion', 'Registrar autorización de crédito')
       .input('formulario', 'frmAutoCred')
-      .input('detalle', numero)
+      .input('detalle', numeroLimpio)
       .query(auditoriaQuery);
-    console.log(`✅ Registro de auditoría insertado exitosamente para pedido: ${numero}`);
-    console.log(`📊 Datos de auditoría: Operador=Administrador, Opcion=Ventas-Autoriza Creditos, Accion=Registrar autorización de crédito, Formulario=frmAutoCred, Detalle=${numero}`);
+    console.log(`✅ Registro de auditoría insertado exitosamente para pedido: ${numeroLimpio}`);
+    console.log(`📊 Datos de auditoría: Operador=Administrador, Opcion=Ventas-Autoriza Creditos, Accion=Registrar autorización de crédito, Formulario=frmAutoCred, Detalle=${numeroLimpio}`);
 
-    console.log(`🎉 FINALIZADO - Autorización completada para pedido: ${numero}`);
+    console.log(`🎉 FINALIZADO - Autorización completada para pedido: ${numeroLimpio}`);
     res.json({
       success: true,
-      message: `Pedido ${numero} autorizado correctamente. Estado cambiado de Crédito a ${mensajeEstado}.`,
+      message: `Pedido ${numeroLimpio} autorizado correctamente. Estado cambiado de Crédito a ${mensajeEstado}.`,
       estadoFinal: estadoFinal,
       estadoFinalDescripcion: mensajeEstado,
       tieneProductosParaAutorizar: tieneProductosParaAutorizar
@@ -411,6 +543,9 @@ router.delete('/:numero', async (req, res) => {
   try {
     const pool = await getConnection();
     const { numero } = req.params;
+    
+    // Limpiar el número del pedido (eliminar espacios al inicio y final)
+    const numeroLimpio = numero.trim();
 
     // Primero verificar que el pedido existe
     const verificarQuery = `
@@ -418,7 +553,7 @@ router.delete('/:numero', async (req, res) => {
     `;
     
     const verificarResult = await pool.request()
-      .input('numero', numero)
+      .input('numero', numeroLimpio)
       .query(verificarQuery);
 
     if (verificarResult.recordset.length === 0) {
