@@ -122,7 +122,7 @@ router.get('/export', async (req, res) => {
     // Agregar filas
     result.recordset.forEach(row => {
       worksheet.addRow({
-        codpro: row.codpro ? row.codpro.toString().padStart(5, '0') : '',
+        codpro: row.codpro ? row.codpro.toString().padStart(50, '0') : '',
         NombreProducto: row.NombreProducto || '',
         almacen: row.almacen || '',
         lote: row.lote || '',

@@ -605,31 +605,34 @@ router.post('/consultar-ventas', async (req, res) => {
   try {
     const { codigo, lote, fechaDesde, fechaHasta, vendedor } = req.body;
 
-    let query = `
-      SELECT 
-        k.documento,
-        CONVERT(varchar, k.fecha, 103) AS fecha,
-        k.CantSal as cantidad,
-        CASE 
-          WHEN dc.Vendedor IS NOT NULL AND e.Codemp IS NOT NULL 
-          THEN CONCAT(dc.Vendedor, ' - ', e.Nombre)
-          WHEN dc.Vendedor IS NOT NULL 
-          THEN CONCAT(dc.Vendedor, ' - Sin nombre')
-          ELSE ''
-        END AS Vendedor,
-                 ISNULL(dd.codpro, dp.codpro) as codigoProducto,
-        ISNULL(p.Nombre, 'Sin nombre') as nombreProducto,
-        k.costo,
-        CAST(LTRIM(RTRIM(k.venta)) AS DECIMAL(10,2)) as venta
-      FROM Kardex k WITH(NOLOCK)
-      LEFT JOIN Doccab dc WITH(NOLOCK) ON k.documento = dc.Numero
-      LEFT JOIN Empleados e WITH(NOLOCK) ON dc.Vendedor = e.Codemp
-      LEFT JOIN Docdet dd WITH(NOLOCK) ON k.documento = dd.numero
-      LEFT JOIN DocdetPed dp WITH(NOLOCK) ON k.documento = dp.numero
-      LEFT JOIN Productos p WITH(NOLOCK) ON LTRIM(RTRIM(ISNULL(dd.codpro, dp.codpro))) = LTRIM(RTRIM(p.CodPro))
-      WHERE k.CantSal > 0 
-        AND k.clase = 'Ventas'
-    `;
+         let query = `
+       SELECT 
+         k.documento,
+         CONVERT(varchar, k.fecha, 103) AS fecha,
+         k.CantSal as cantidad,
+         CASE 
+           WHEN dc.Vendedor IS NOT NULL AND e.Codemp IS NOT NULL 
+           THEN CONCAT(dc.Vendedor, ' - ', e.Nombre)
+           WHEN dc.Vendedor IS NOT NULL 
+           THEN CONCAT(dc.Vendedor, ' - Sin nombre')
+           ELSE ''
+         END AS Vendedor,
+         ISNULL(dd.codpro, dp.codpro) as codigoProducto,
+         ISNULL(p.Nombre, 'Sin nombre') as nombreProducto,
+         ISNULL(c.Razon, 'Sin cliente') as nombreCliente,
+         ISNULL(c.documento, 'Sin RUC') as rucCliente,
+         k.costo,
+         CAST(LTRIM(RTRIM(k.venta)) AS DECIMAL(10,2)) as venta
+       FROM Kardex k WITH(NOLOCK)
+       LEFT JOIN Doccab dc WITH(NOLOCK) ON k.documento = dc.Numero
+       LEFT JOIN Empleados e WITH(NOLOCK) ON dc.Vendedor = e.Codemp
+       LEFT JOIN Clientes c WITH(NOLOCK) ON dc.CodClie = c.Codclie
+       LEFT JOIN Docdet dd WITH(NOLOCK) ON k.documento = dd.numero
+       LEFT JOIN DocdetPed dp WITH(NOLOCK) ON k.documento = dp.numero
+       LEFT JOIN Productos p WITH(NOLOCK) ON LTRIM(RTRIM(ISNULL(dd.codpro, dp.codpro))) = LTRIM(RTRIM(p.CodPro))
+       WHERE k.CantSal > 0 
+         AND k.clase = 'Ventas'
+     `;
 
     const params = {};
 
@@ -734,8 +737,12 @@ router.post('/generar-reporte-ventas', async (req, res) => {
   try {
     const { ventas, filtros, totalGeneral, fechaGeneracion, vendedorSeleccionado } = req.body;
 
-    // Crear el documento PDF
-    const doc = new PDFDocument({ margin: 30 });
+         // Crear el documento PDF en orientación horizontal
+     const doc = new PDFDocument({ 
+       margin: 20,
+       size: 'A4',
+       layout: 'portrait'
+     });
 
     // Configurar headers para descarga
     res.setHeader('Content-Type', 'application/pdf');
@@ -756,62 +763,105 @@ router.post('/generar-reporte-ventas', async (req, res) => {
     doc.text(`Total general: S/ ${totalGeneral.toFixed(2)}`);
     doc.moveDown(2);
 
-    // Tabla de ventas
+    // Tabla de ventas agrupada por cliente y vendedor
     if (ventas.length > 0) {
-             // Headers de la tabla
-       const headers = ['Documento', 'Fecha', 'CodPro', 'Producto', 'Cant', 'P.Unit.', 'Total', 'Vendedor'];
-       const columnWidths = [56, 53, 40, 120, 25, 45, 50, 200];
+      // Headers de la tabla (sin cliente y vendedor ya que van en encabezados de grupo)
+      const headers = ['Documento', 'Fecha', 'C.Pro', 'Producto', 'Cant', 'P.Unit.', 'Total'];
+      const columnWidths = [60, 50, 30, 220, 25, 55, 55];
       
-             let yPosition = doc.y;
-       let xPosition = 30;
-       const columnSpacing = 10; // Espacio entre columnas
+      let yPosition = doc.y;
+             const columnSpacing = 5; // Espacio entre columnas (reducido para portrait)
 
-       // Dibujar headers
-       doc.font('Helvetica-Bold').fontSize(10);
-       headers.forEach((header, index) => {
-         doc.text(header, xPosition, yPosition, { width: columnWidths[index] });
-         xPosition += columnWidths[index] + columnSpacing;
+             // Agrupar ventas por cliente y vendedor
+       const grupos = {};
+       ventas.forEach(venta => {
+         const cliente = venta.nombreCliente || 'Sin cliente';
+         const ruc = venta.rucCliente || 'Sin RUC';
+         const vendedor = venta.Vendedor || 'Sin vendedor';
+         const clave = `${cliente}|||${vendedor}`; // Usar separador único
+         if (!grupos[clave]) {
+           grupos[clave] = {
+             cliente: cliente,
+             ruc: ruc,
+             vendedor: vendedor,
+             ventas: [],
+             totalCantidad: 0,
+             totalGeneral: 0
+           };
+         }
+         grupos[clave].ventas.push(venta);
+         grupos[clave].totalCantidad += venta.cantidad || 0;
+         grupos[clave].totalGeneral += (venta.cantidad || 0) * (venta.venta || 0);
        });
 
-      yPosition += 20;
-      doc.font('Helvetica').fontSize(9);
+      // Iterar sobre cada grupo
+      Object.keys(grupos).forEach((clave, grupoIndex) => {
+        const grupo = grupos[clave];
+        const cliente = grupo.cliente;
+        const vendedor = grupo.vendedor;
+        const ventasGrupo = grupo.ventas;
 
-      // Dibujar datos
-      ventas.forEach((venta, index) => {
-        if (yPosition > 700) { // Nueva página si no hay espacio
-          doc.addPage();
-          yPosition = 30;
-        }
+                 // Verificar si necesitamos nueva página para el encabezado del grupo
+         if (yPosition > 750) { // Nueva página si no hay espacio para el grupo (ajustado para portrait)
+           doc.addPage();
+           yPosition = 20;
+         }
 
-        xPosition = 30;
-                 const rowData = [
-           venta.documento || '',
-           venta.fecha || '',
-           venta.codigoProducto || '',
-           venta.nombreProducto || '',
-           venta.cantidad || 0,
-           `S/ ${(venta.venta || 0).toFixed(2)}`,
-           `S/ ${((venta.cantidad || 0) * (venta.venta || 0)).toFixed(2)}`,
-           venta.Vendedor || ''
-         ];
+                 // Encabezado del grupo
+         doc.font('Helvetica-Bold').fontSize(12);
+         doc.text(`CLIENTE: ${cliente} | RUC: ${grupo.ruc}`, 10, yPosition);
+         yPosition += 15;
+         doc.text(`VENDEDOR: ${vendedor} | Cant. Total: ${grupo.totalCantidad} | Total: S/ ${grupo.totalGeneral.toFixed(2)}`, 10, yPosition);
+         yPosition += 20;
 
-                 rowData.forEach((cell, cellIndex) => {
-           // Truncar texto largo para evitar desbordamiento
-           let cellText = cell.toString();
-           if (cellIndex === 3 && cellText.length > 20) { // Producto
-             cellText = cellText.substring(0, 17) + '...';
-           } else if (cellIndex === 7 && cellText.length > 15) { // Vendedor
-             cellText = cellText.substring(0, 12) + '...';
+        // Headers de la tabla para este grupo
+        doc.font('Helvetica-Bold').fontSize(10);
+        let xPosition = 20;
+        headers.forEach((header, index) => {
+          doc.text(header, xPosition, yPosition, { width: columnWidths[index] });
+          xPosition += columnWidths[index] + columnSpacing;
+        });
+
+        yPosition += 20;
+        doc.font('Helvetica').fontSize(9);
+
+                 // Datos del grupo
+         ventasGrupo.forEach((venta, index) => {
+           if (yPosition > 800) { // Nueva página si no hay espacio (ajustado para portrait)
+             doc.addPage();
+             yPosition = 20;
            }
-           
-           doc.text(cellText, xPosition, yPosition, { 
-             width: columnWidths[cellIndex],
-             align: cellIndex === 4 || cellIndex === 5 || cellIndex === 6 ? 'right' : 'left'
-           });
-           xPosition += columnWidths[cellIndex] + columnSpacing;
-         });
 
-        yPosition += 15;
+          xPosition = 20;
+          const rowData = [
+            venta.documento || '',
+            venta.fecha || '',
+            venta.codigoProducto || '',
+            venta.nombreProducto || '',
+            venta.cantidad || 0,
+            `S/ ${(venta.venta || 0).toFixed(2)}`,
+            `S/ ${((venta.cantidad || 0) * (venta.venta || 0)).toFixed(2)}`
+          ];
+
+          rowData.forEach((cell, cellIndex) => {
+            // Truncar texto largo para evitar desbordamiento
+            let cellText = cell.toString();
+            if (cellIndex === 3 && cellText.length > 40) { // Producto
+              cellText = cellText.substring(0, 40) ;
+            }
+            
+            doc.text(cellText, xPosition, yPosition, { 
+              width: columnWidths[cellIndex],
+              align: cellIndex === 4 || cellIndex === 5 || cellIndex === 6 ? 'right' : 'left'
+            });
+            xPosition += columnWidths[cellIndex] + columnSpacing;
+          });
+
+          yPosition += 15;
+        });
+
+        // Espacio entre grupos
+        yPosition += 10;
       });
     } else {
       doc.text('No se encontraron ventas para el criterio especificado.', { align: 'center' });
