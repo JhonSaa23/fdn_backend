@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { executeQuery } = require('../database'); // Asumiendo que esto maneja tu conexión y ejecución de DB
 const sql = require('mssql');
+const PDFDocument = require('pdfkit');
 
 /**
  * GET /tabla
@@ -10,9 +11,29 @@ const sql = require('mssql');
 router.get('/tabla', async (req, res) => {
   try {
     const query = `
-      SELECT *
-      FROM Kardex WITH(NOLOCK)
-      ORDER BY Fecha DESC
+      SELECT 
+        k.numero,
+        k.documento,
+        CONVERT(varchar, k.fecha, 103) AS fecha,
+        k.Tipo,
+        k.clase,
+        k.CantEnt,
+        k.CantSal,
+        CASE 
+          WHEN dc.Vendedor IS NOT NULL AND e.Codemp IS NOT NULL 
+          THEN CONCAT(dc.Vendedor, ' - ', e.Nombre)
+          WHEN dc.Vendedor IS NOT NULL 
+          THEN CONCAT(dc.Vendedor, ' - Sin nombre')
+          ELSE ''
+        END AS Vendedor,
+        k.costo,
+        k.venta,
+        k.stock,
+        k.CostoP
+      FROM Kardex k WITH(NOLOCK)
+      LEFT JOIN Doccab dc WITH(NOLOCK) ON k.documento = dc.Numero
+      LEFT JOIN Empleados e WITH(NOLOCK) ON dc.Vendedor = e.Codemp
+      ORDER BY k.Fecha DESC
     `;
     const result = await executeQuery(query);
     res.json(result.recordset);
@@ -28,22 +49,31 @@ router.get('/tabla', async (req, res) => {
  */
 router.post('/consultar', async (req, res) => {
   try {
-    const { documento, fechaDesde, fechaHasta, codpro, lote, movimiento, clase } = req.body;
+    const { documento, fechaDesde, fechaHasta, codpro, lote, movimiento, clase, vendedor } = req.body;
 
     let query = `
       SELECT 
-        numero,
-        documento,
-        CONVERT(varchar, fecha, 103) AS fecha,
-        Tipo,
-        clase,
-        CantEnt,
-        CantSal,
-        costo,
-        venta,
-        stock,
-        CostoP
-      FROM Kardex WITH(NOLOCK)
+        k.numero,
+        k.documento,
+        CONVERT(varchar, k.fecha, 103) AS fecha,
+        k.Tipo,
+        k.clase,
+        k.CantEnt,
+        k.CantSal,
+        CASE 
+          WHEN dc.Vendedor IS NOT NULL AND e.Codemp IS NOT NULL 
+          THEN CONCAT(dc.Vendedor, ' - ', e.Nombre)
+          WHEN dc.Vendedor IS NOT NULL 
+          THEN CONCAT(dc.Vendedor, ' - Sin nombre')
+          ELSE ''
+        END AS Vendedor,
+        k.costo,
+        k.venta,
+        k.stock,
+        k.CostoP
+      FROM Kardex k WITH(NOLOCK)
+      LEFT JOIN Doccab dc WITH(NOLOCK) ON k.documento = dc.Numero
+      LEFT JOIN Empleados e WITH(NOLOCK) ON dc.Vendedor = e.Codemp
       WHERE 1=1
     `;
 
@@ -51,53 +81,59 @@ router.post('/consultar', async (req, res) => {
 
     // Filtro por código de producto
     if (codpro && codpro.trim()) {
-      query += ' AND numero LIKE @codpro';
+      query += ' AND k.numero LIKE @codpro';
       params.codpro = `%${codpro.trim()}%`;
     }
 
     // Filtro por documento
     if (documento && documento.trim()) {
-      query += ' AND documento LIKE @documento';
+      query += ' AND k.documento LIKE @documento';
       params.documento = `%${documento.trim()}%`;
     }
 
     // Filtro por fecha desde
     if (fechaDesde && fechaDesde.trim()) {
-      query += ' AND CONVERT(date, fecha) >= @fechaDesde';
+      query += ' AND CONVERT(date, k.fecha) >= @fechaDesde';
       params.fechaDesde = fechaDesde.trim();
     }
 
     // Filtro por fecha hasta
     if (fechaHasta && fechaHasta.trim()) {
-      query += ' AND CONVERT(date, fecha) <= @fechaHasta';
+      query += ' AND CONVERT(date, k.fecha) <= @fechaHasta';
       params.fechaHasta = fechaHasta.trim();
     }
 
-    // Filtro por lote
-    if (lote && lote.trim()) {
-      query += ' AND lote LIKE @lote';
-      params.lote = `%${lote.trim()}%`;
-    }
+    // Filtro por lote (removido ya que la tabla Kardex no tiene columna lote)
+    // if (lote && lote.trim()) {
+    //   query += ' AND k.lote LIKE @lote';
+    //   params.lote = `%${lote.trim()}%`;
+    // }
 
     // Filtro por tipo de movimiento (entrada/salida)
     if (movimiento && movimiento.trim()) {
       if (movimiento === '1') {
         // Solo entradas (CantEnt > 0)
-        query += ' AND CantEnt > 0';
+        query += ' AND k.CantEnt > 0';
       } else if (movimiento === '2') {
         // Solo salidas (CantSal > 0)
-        query += ' AND CantSal > 0';
+        query += ' AND k.CantSal > 0';
       }
     }
 
     // Filtro por clase
     if (clase && clase.trim()) {
-      query += ' AND clase LIKE @clase';
+      query += ' AND k.clase LIKE @clase';
       params.clase = `%${clase.trim()}%`;
     }
 
+    // Filtro por vendedor
+    if (vendedor && vendedor.trim()) {
+      query += ' AND (dc.Vendedor LIKE @vendedor OR e.Nombre LIKE @vendedor)';
+      params.vendedor = `%${vendedor.trim()}%`;
+    }
+
     // Ordenar por fecha descendente para ver los más recientes primero
-    query += ' ORDER BY fecha DESC, numero DESC';
+    query += ' ORDER BY k.fecha DESC, k.numero DESC';
 
     console.log('Ejecutando consulta kardex:', query);
     console.log('Parámetros:', params);
@@ -178,19 +214,28 @@ router.post('/ejecutar-procedimiento', async (req, res) => {
     // 6) Leer y devolver resultados de Kardex
     const result = await executeQuery(
       `
-        SELECT numero,
-               documento,
-               CONVERT(varchar, fecha, 103) AS fecha,
-               Tipo,
-               clase,
-               CantEnt,
-               CantSal,
-               costo,
-               venta,
-               stock,
-               CostoP
-        FROM Kardex
-        ORDER BY fecha ASC;
+          SELECT k.numero,
+                k.documento,
+                CONVERT(varchar, k.fecha, 103) AS fecha,
+                k.Tipo,
+                k.clase,
+                k.CantEnt,
+                k.CantSal,
+                CASE 
+                  WHEN dc.Vendedor IS NOT NULL AND e.Codemp IS NOT NULL 
+                  THEN CONCAT(dc.Vendedor, ' - ', e.Nombre)
+                  WHEN dc.Vendedor IS NOT NULL 
+                  THEN CONCAT(dc.Vendedor, ' - Sin nombre')
+                  ELSE ''
+                END AS Vendedor,
+                k.costo,
+                k.venta,
+                k.stock,
+                k.CostoP
+          FROM Kardex k
+          LEFT JOIN Doccab dc WITH(NOLOCK) ON k.documento = dc.Numero
+          LEFT JOIN Empleados e WITH(NOLOCK) ON dc.Vendedor = e.Codemp
+          ORDER BY k.fecha ASC;
       `
     );
 
@@ -548,6 +593,238 @@ router.get('/cliente-documento/:numero', async (req, res) => {
       success: false,
       error: 'Error al buscar cliente',
       details: error.message
+    });
+  }
+});
+
+/**
+ * POST /consultar-ventas
+ * Consulta específicamente las salidas por ventas con detalles completos
+ */
+router.post('/consultar-ventas', async (req, res) => {
+  try {
+    const { codigo, lote, fechaDesde, fechaHasta, vendedor } = req.body;
+
+    let query = `
+      SELECT 
+        k.documento,
+        CONVERT(varchar, k.fecha, 103) AS fecha,
+        k.CantSal as cantidad,
+        CASE 
+          WHEN dc.Vendedor IS NOT NULL AND e.Codemp IS NOT NULL 
+          THEN CONCAT(dc.Vendedor, ' - ', e.Nombre)
+          WHEN dc.Vendedor IS NOT NULL 
+          THEN CONCAT(dc.Vendedor, ' - Sin nombre')
+          ELSE ''
+        END AS Vendedor,
+                 ISNULL(dd.codpro, dp.codpro) as codigoProducto,
+        ISNULL(p.Nombre, 'Sin nombre') as nombreProducto,
+        k.costo,
+        CAST(LTRIM(RTRIM(k.venta)) AS DECIMAL(10,2)) as venta
+      FROM Kardex k WITH(NOLOCK)
+      LEFT JOIN Doccab dc WITH(NOLOCK) ON k.documento = dc.Numero
+      LEFT JOIN Empleados e WITH(NOLOCK) ON dc.Vendedor = e.Codemp
+      LEFT JOIN Docdet dd WITH(NOLOCK) ON k.documento = dd.numero
+      LEFT JOIN DocdetPed dp WITH(NOLOCK) ON k.documento = dp.numero
+      LEFT JOIN Productos p WITH(NOLOCK) ON LTRIM(RTRIM(ISNULL(dd.codpro, dp.codpro))) = LTRIM(RTRIM(p.CodPro))
+      WHERE k.CantSal > 0 
+        AND k.clase = 'Ventas'
+    `;
+
+    const params = {};
+
+         // Filtro por código de producto (buscar en Docdet.codpro o DocdetPed.codpro)
+     if (codigo && codigo.trim()) {
+       query += ' AND (dd.codpro LIKE @codigo OR dp.codpro LIKE @codigo)';
+       params.codigo = `%${codigo.trim()}%`;
+     }
+
+    // Filtro por lote (removido ya que la tabla Kardex no tiene columna lote)
+    // if (lote && lote.trim()) {
+    //   query += ' AND k.lote LIKE @lote';
+    //   params.lote = `%${lote.trim()}%`;
+    // }
+
+    // Filtro por fecha desde
+    if (fechaDesde && fechaDesde.trim()) {
+      query += ' AND CONVERT(date, k.fecha) >= @fechaDesde';
+      params.fechaDesde = fechaDesde.trim();
+    }
+
+    // Filtro por fecha hasta
+    if (fechaHasta && fechaHasta.trim()) {
+      query += ' AND CONVERT(date, k.fecha) <= @fechaHasta';
+      params.fechaHasta = fechaHasta.trim();
+    }
+
+    // Si no se especifican fechas, mostrar todos los registros (sin filtro de fecha)
+    // if (!fechaDesde && !fechaHasta) {
+    //   query += ' AND k.fecha >= DATEADD(day, -30, GETDATE())';
+    // }
+
+    // Filtro por vendedor (exacto por código o nombre)
+    if (vendedor && vendedor.trim()) {
+      // Si contiene " - ", es un vendedor seleccionado del autocompletado
+      if (vendedor.includes(' - ')) {
+        const codigoVendedor = vendedor.split(' - ')[0].trim();
+        query += ' AND dc.Vendedor = @vendedor';
+        params.vendedor = codigoVendedor;
+      } else {
+        // Búsqueda por código exacto o nombre que contenga
+        query += ' AND (dc.Vendedor = @vendedor OR e.Nombre LIKE @vendedor)';
+        params.vendedor = vendedor.trim();
+      }
+    }
+
+    // Ordenar por fecha descendente
+    query += ' ORDER BY k.fecha DESC, k.documento DESC';
+
+    console.log('Ejecutando consulta de ventas:', query);
+    console.log('Parámetros:', params);
+
+    const result = await executeQuery(query, params);
+    res.json(result.recordset);
+
+  } catch (error) {
+    console.error('Error al consultar ventas:', error);
+    res.status(500).json({ 
+      error: 'Error al consultar ventas', 
+      details: error.message 
+    });
+  }
+});
+
+/**
+ * GET /vendedores
+ * Obtiene la lista de vendedores disponibles
+ */
+router.get('/vendedores', async (req, res) => {
+  try {
+    const query = `
+      SELECT DISTINCT 
+        e.Codemp as codigo,
+        e.Nombre as nombre
+      FROM Empleados e WITH(NOLOCK)
+      INNER JOIN Doccab dc WITH(NOLOCK) ON e.Codemp = dc.Vendedor
+      INNER JOIN Kardex k WITH(NOLOCK) ON dc.Numero = k.documento
+      WHERE k.CantSal > 0 
+        AND k.clase = 'Ventas'
+        AND e.Codemp IS NOT NULL
+        AND e.Nombre IS NOT NULL
+      ORDER BY e.Nombre
+    `;
+
+    const result = await executeQuery(query);
+    res.json(result.recordset);
+
+  } catch (error) {
+    console.error('Error al obtener vendedores:', error);
+    res.status(500).json({ 
+      error: 'Error al obtener vendedores', 
+      details: error.message 
+    });
+  }
+});
+
+/**
+ * POST /generar-reporte-ventas
+ * Genera un reporte PDF de las ventas consultadas
+ */
+router.post('/generar-reporte-ventas', async (req, res) => {
+  try {
+    const { ventas, filtros, totalGeneral, fechaGeneracion, vendedorSeleccionado } = req.body;
+
+    // Crear el documento PDF
+    const doc = new PDFDocument({ margin: 30 });
+
+    // Configurar headers para descarga
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', 'attachment; filename=reporte-ventas.pdf');
+
+    // Pipe el PDF a la respuesta
+    doc.pipe(res);
+
+    // Título del reporte
+    doc.fontSize(20).font('Helvetica-Bold').text('REPORTE DE VENTAS', { align: 'center' });
+    doc.moveDown();
+
+    // Información del reporte
+    doc.fontSize(12).font('Helvetica');
+    doc.text(`Fecha de generación: ${fechaGeneracion}`);
+    doc.text(`Vendedor: ${vendedorSeleccionado}`);
+    doc.text(`Total de ventas: ${ventas.length}`);
+    doc.text(`Total general: S/ ${totalGeneral.toFixed(2)}`);
+    doc.moveDown(2);
+
+    // Tabla de ventas
+    if (ventas.length > 0) {
+             // Headers de la tabla
+       const headers = ['Documento', 'Fecha', 'CodPro', 'Producto', 'Cant', 'P.Unit.', 'Total', 'Vendedor'];
+       const columnWidths = [56, 53, 40, 120, 25, 45, 50, 200];
+      
+             let yPosition = doc.y;
+       let xPosition = 30;
+       const columnSpacing = 10; // Espacio entre columnas
+
+       // Dibujar headers
+       doc.font('Helvetica-Bold').fontSize(10);
+       headers.forEach((header, index) => {
+         doc.text(header, xPosition, yPosition, { width: columnWidths[index] });
+         xPosition += columnWidths[index] + columnSpacing;
+       });
+
+      yPosition += 20;
+      doc.font('Helvetica').fontSize(9);
+
+      // Dibujar datos
+      ventas.forEach((venta, index) => {
+        if (yPosition > 700) { // Nueva página si no hay espacio
+          doc.addPage();
+          yPosition = 30;
+        }
+
+        xPosition = 30;
+                 const rowData = [
+           venta.documento || '',
+           venta.fecha || '',
+           venta.codigoProducto || '',
+           venta.nombreProducto || '',
+           venta.cantidad || 0,
+           `S/ ${(venta.venta || 0).toFixed(2)}`,
+           `S/ ${((venta.cantidad || 0) * (venta.venta || 0)).toFixed(2)}`,
+           venta.Vendedor || ''
+         ];
+
+                 rowData.forEach((cell, cellIndex) => {
+           // Truncar texto largo para evitar desbordamiento
+           let cellText = cell.toString();
+           if (cellIndex === 3 && cellText.length > 20) { // Producto
+             cellText = cellText.substring(0, 17) + '...';
+           } else if (cellIndex === 7 && cellText.length > 15) { // Vendedor
+             cellText = cellText.substring(0, 12) + '...';
+           }
+           
+           doc.text(cellText, xPosition, yPosition, { 
+             width: columnWidths[cellIndex],
+             align: cellIndex === 4 || cellIndex === 5 || cellIndex === 6 ? 'right' : 'left'
+           });
+           xPosition += columnWidths[cellIndex] + columnSpacing;
+         });
+
+        yPosition += 15;
+      });
+    } else {
+      doc.text('No se encontraron ventas para el criterio especificado.', { align: 'center' });
+    }
+
+    // Finalizar el documento
+    doc.end();
+
+  } catch (error) {
+    console.error('Error al generar reporte PDF:', error);
+    res.status(500).json({ 
+      error: 'Error al generar reporte PDF', 
+      details: error.message 
     });
   }
 });
