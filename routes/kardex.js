@@ -619,6 +619,7 @@ router.post('/consultar-ventas', async (req, res) => {
          END AS Vendedor,
          ISNULL(dd.codpro, dp.codpro) as codigoProducto,
          ISNULL(p.Nombre, 'Sin nombre') as nombreProducto,
+         ISNULL(dd.Lote, 'Sin lote') as loteProducto,
          ISNULL(c.Razon, 'Sin cliente') as nombreCliente,
          ISNULL(c.documento, 'Sin RUC') as rucCliente,
          k.costo,
@@ -760,14 +761,13 @@ router.post('/generar-reporte-ventas', async (req, res) => {
     doc.text(`Fecha de generación: ${fechaGeneracion}`);
     doc.text(`Vendedor: ${vendedorSeleccionado}`);
     doc.text(`Total de ventas: ${ventas.length}`);
-    doc.text(`Total general: S/ ${totalGeneral.toFixed(2)}`);
     doc.moveDown(2);
 
     // Tabla de ventas agrupada por cliente y vendedor
     if (ventas.length > 0) {
-      // Headers de la tabla (sin cliente y vendedor ya que van en encabezados de grupo)
-      const headers = ['Documento', 'Fecha', 'C.Pro', 'Producto', 'Cant', 'P.Unit.', 'Total'];
-      const columnWidths = [60, 50, 30, 220, 25, 55, 55];
+             // Headers de la tabla (sin cliente y vendedor ya que van en encabezados de grupo)
+       const headers = ['Documento', 'Fecha', 'C.Pro', 'Producto', 'Cant', 'Lote'];
+       const columnWidths = [55, 50, 30, 250, 30, 80];
       
       let yPosition = doc.y;
              const columnSpacing = 5; // Espacio entre columnas (reducido para portrait)
@@ -808,10 +808,10 @@ router.post('/generar-reporte-ventas', async (req, res) => {
          }
 
                  // Encabezado del grupo
-         doc.font('Helvetica-Bold').fontSize(12);
+         doc.font('Helvetica-Bold').fontSize(10);
          doc.text(`CLIENTE: ${cliente} | RUC: ${grupo.ruc}`, 10, yPosition);
          yPosition += 15;
-         doc.text(`VENDEDOR: ${vendedor} | Cant. Total: ${grupo.totalCantidad} | Total: S/ ${grupo.totalGeneral.toFixed(2)}`, 10, yPosition);
+         doc.text(`VENDEDOR: ${vendedor} | Cant. Total: ${grupo.totalCantidad}`, 10, yPosition);
          yPosition += 20;
 
         // Headers de la tabla para este grupo
@@ -839,20 +839,20 @@ router.post('/generar-reporte-ventas', async (req, res) => {
             venta.codigoProducto || '',
             venta.nombreProducto || '',
             venta.cantidad || 0,
-            `S/ ${(venta.venta || 0).toFixed(2)}`,
+            venta.loteProducto || 'Sin lote'
             `S/ ${((venta.cantidad || 0) * (venta.venta || 0)).toFixed(2)}`
           ];
 
           rowData.forEach((cell, cellIndex) => {
             // Truncar texto largo para evitar desbordamiento
             let cellText = cell.toString();
-            if (cellIndex === 3 && cellText.length > 40) { // Producto
-              cellText = cellText.substring(0, 40) ;
+            if (cellIndex === 3 && cellText.length > 45) { // Producto
+              cellText = cellText.substring(0, 45) ;
             }
             
             doc.text(cellText, xPosition, yPosition, { 
               width: columnWidths[cellIndex],
-              align: cellIndex === 4 || cellIndex === 5 || cellIndex === 6 ? 'right' : 'left'
+              align: cellIndex === 4 ? 'left' : 'left'
             });
             xPosition += columnWidths[cellIndex] + columnSpacing;
           });
