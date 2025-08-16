@@ -501,4 +501,217 @@ router.get('/loreal-notas/vista-actual', async (req, res) => {
   }
 });
 
+// Endpoint para reporte de compras por laboratorio
+router.post('/compras-laboratorio', async (req, res) => {
+  try {
+    const { codigoLaboratorio } = req.body;
+    
+    // Validar que exista el código de laboratorio
+    if (!codigoLaboratorio) {
+      return res.status(400).json({
+        success: false,
+        error: 'El código de laboratorio es requerido'
+      });
+    }
+
+    const query = `
+      WITH CompraAcumulada AS (
+          SELECT
+              RTRIM(P.Codlab) AS "CÓD_MIF (SAP)",
+              RTRIM(P.Nombre) AS DESCRIPCION,
+              S.saldo AS "CANTIDAD REAL DISPONIBLE",
+              DC.Numero AS "N° FACTURA COMPRA",
+              DD.Lote AS LOTE,
+              DD.Vencimiento AS "F.VCMTO.",
+              DC.Fecha AS "FECHA DE FACTURACION",
+              DD.Cantidad AS "CANTIDAD COMPRADA",
+              SUM(DD.Cantidad) OVER (PARTITION BY DD.Lote ORDER BY ABS(DD.Cantidad - S.saldo)) AS SumaAcumulada
+          FROM
+              DocCom DC
+          LEFT JOIN
+              detCom DD ON DC.Numero = DD.Numero
+          LEFT JOIN
+              Productos P ON RTRIM(DD.CodPro) = RTRIM(P.Codpro)
+          LEFT JOIN
+              Docdet DV ON RTRIM(DD.CodPro) = RTRIM(DV.CodPro) AND DD.Lote = DV.Lote
+          INNER JOIN
+              saldos S ON RTRIM(DD.CodPro) = RTRIM(S.codpro) AND DD.Lote = S.lote AND S.almacen = 1
+          WHERE
+              LEFT(RTRIM(P.Codpro), 2) = @codigoLaboratorio
+          GROUP BY
+              P.Codlab, P.Nombre, DC.Numero, DD.Cantidad, DD.Lote, DD.Vencimiento, DC.Fecha, S.saldo
+          HAVING
+              S.saldo > 0
+      )
+      SELECT
+          "CÓD_MIF (SAP)",
+          DESCRIPCION,
+          "CANTIDAD REAL DISPONIBLE",
+          "N° FACTURA COMPRA",
+          LOTE,
+          "F.VCMTO.",
+          "FECHA DE FACTURACION",
+          "CANTIDAD COMPRADA"
+      FROM
+          CompraAcumulada
+      WHERE
+          SumaAcumulada - "CANTIDAD COMPRADA" < "CANTIDAD REAL DISPONIBLE"
+          OR (SumaAcumulada - "CANTIDAD REAL DISPONIBLE" < "CANTIDAD COMPRADA" AND SumaAcumulada >= "CANTIDAD REAL DISPONIBLE")
+      ORDER BY
+          DESCRIPCION, LOTE, "FECHA DE FACTURACION", "CANTIDAD COMPRADA"
+    `;
+    
+    const params = {
+      codigoLaboratorio: codigoLaboratorio
+    };
+    
+    // Ejecutar la consulta
+    const result = await executeQuery(query, params);
+    
+    res.json({
+      success: true,
+      data: result.recordset,
+      totalRegistros: result.recordset.length,
+      laboratorio: codigoLaboratorio
+    });
+    
+  } catch (error) {
+    console.error('Error al consultar reporte de compras por laboratorio:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Error al consultar reporte: ' + error.message 
+    });
+  }
+});
+
+// Endpoint para exportar reporte de compras por laboratorio a Excel
+router.post('/compras-laboratorio/export', async (req, res) => {
+  try {
+    const { codigoLaboratorio } = req.body;
+    
+    // Validar que exista el código de laboratorio
+    if (!codigoLaboratorio) {
+      return res.status(400).json({
+        success: false,
+        error: 'El código de laboratorio es requerido'
+      });
+    }
+
+    const query = `
+      WITH CompraAcumulada AS (
+          SELECT
+              RTRIM(P.Codlab) AS "CÓD_MIF (SAP)",
+              RTRIM(P.Nombre) AS DESCRIPCION,
+              S.saldo AS "CANTIDAD REAL DISPONIBLE",
+              DC.Numero AS "N° FACTURA COMPRA",
+              DD.Lote AS LOTE,
+              DD.Vencimiento AS "F.VCMTO.",
+              DC.Fecha AS "FECHA DE FACTURACION",
+              DD.Cantidad AS "CANTIDAD COMPRADA",
+              SUM(DD.Cantidad) OVER (PARTITION BY DD.Lote ORDER BY ABS(DD.Cantidad - S.saldo)) AS SumaAcumulada
+          FROM
+              DocCom DC
+          LEFT JOIN
+              detCom DD ON DC.Numero = DD.Numero
+          LEFT JOIN
+              Productos P ON RTRIM(DD.CodPro) = RTRIM(P.Codpro)
+          LEFT JOIN
+              Docdet DV ON RTRIM(DD.CodPro) = RTRIM(DV.CodPro) AND DD.Lote = DV.Lote
+          INNER JOIN
+              saldos S ON RTRIM(DD.CodPro) = RTRIM(S.codpro) AND DD.Lote = S.lote AND S.almacen = 1
+          WHERE
+              LEFT(RTRIM(P.Codpro), 2) = @codigoLaboratorio
+          GROUP BY
+              P.Codlab, P.Nombre, DC.Numero, DD.Cantidad, DD.Lote, DD.Vencimiento, DC.Fecha, S.saldo
+          HAVING
+              S.saldo > 0
+      )
+      SELECT
+          "CÓD_MIF (SAP)",
+          DESCRIPCION,
+          "CANTIDAD REAL DISPONIBLE",
+          "N° FACTURA COMPRA",
+          LOTE,
+          "F.VCMTO.",
+          "FECHA DE FACTURACION",
+          "CANTIDAD COMPRADA"
+      FROM
+          CompraAcumulada
+      WHERE
+          SumaAcumulada - "CANTIDAD COMPRADA" < "CANTIDAD REAL DISPONIBLE"
+          OR (SumaAcumulada - "CANTIDAD REAL DISPONIBLE" < "CANTIDAD COMPRADA" AND SumaAcumulada >= "CANTIDAD REAL DISPONIBLE")
+      ORDER BY
+          DESCRIPCION, LOTE, "FECHA DE FACTURACION", "CANTIDAD COMPRADA"
+    `;
+    
+    const params = {
+      codigoLaboratorio: codigoLaboratorio
+    };
+    
+    // Ejecutar la consulta
+    const result = await executeQuery(query, params);
+    
+    if (result.recordset.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: 'No se encontraron datos para exportar'
+      });
+    }
+
+    // Crear el archivo Excel
+    const workbook = new excel.Workbook();
+    const worksheet = workbook.addWorksheet('Compras por Laboratorio');
+
+    // Definir las columnas
+    worksheet.columns = [
+      { header: 'CÓD_MIF (SAP)', key: 'codMif', width: 15 },
+      { header: 'DESCRIPCIÓN', key: 'descripcion', width: 40 },
+      { header: 'CANTIDAD REAL DISPONIBLE', key: 'cantidadReal', width: 20 },
+      { header: 'N° FACTURA COMPRA', key: 'facturaCompra', width: 20 },
+      { header: 'LOTE', key: 'lote', width: 15 },
+      { header: 'F.VCMTO.', key: 'vencimiento', width: 15 },
+      { header: 'FECHA FACTURACIÓN', key: 'fechaFacturacion', width: 20 },
+      { header: 'CANTIDAD COMPRADA', key: 'cantidadComprada', width: 20 }
+    ];
+
+    // Agregar datos
+    result.recordset.forEach(row => {
+      worksheet.addRow({
+        codMif: row['CÓD_MIF (SAP)'],
+        descripcion: row.DESCRIPCION,
+        cantidadReal: row['CANTIDAD REAL DISPONIBLE'],
+        facturaCompra: row['N° FACTURA COMPRA'],
+        lote: row.LOTE,
+        vencimiento: row['F.VCMTO.'] ? new Date(row['F.VCMTO.']).toLocaleDateString('es-ES') : '',
+        fechaFacturacion: row['FECHA DE FACTURACION'] ? new Date(row['FECHA DE FACTURACION']).toLocaleDateString('es-ES') : '',
+        cantidadComprada: row['CANTIDAD COMPRADA']
+      });
+    });
+
+    // Estilo para el encabezado
+    worksheet.getRow(1).font = { bold: true };
+    worksheet.getRow(1).fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FFE0E0E0' }
+    };
+
+    // Generar el archivo
+    const buffer = await workbook.xlsx.writeBuffer();
+    
+    // Configurar headers para descarga
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="Compras_Laboratorio_${codigoLaboratorio}_${new Date().toISOString().split('T')[0]}.xlsx"`);
+    
+    res.send(buffer);
+    
+  } catch (error) {
+    console.error('Error al exportar reporte de compras por laboratorio:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Error al exportar reporte: ' + error.message 
+    });
+  }
+});
+
 module.exports = router; 

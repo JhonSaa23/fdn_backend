@@ -22,6 +22,7 @@ const { getConnection } = require('./database');
 const productosRoutes = require('./routes/productos');
 const canjeRoutes = require('./routes/canjeRoutes');
 const guiasVentaRoutes = require('./routes/guiasVentaRoutes');
+const botRoutes = require('./routes/botRoutes');
 
 const app = express();
 
@@ -83,9 +84,19 @@ app.use('/api/productos', productosRoutes);
 app.use('/api', canjeRoutes);
 app.use('/api/guias-venta', guiasVentaRoutes);
 
+// Rutas del bot
+app.use('/api/bot', botRoutes);
+
 // Ruta de prueba
 app.get('/', (req, res) => {
-  res.json({ message: 'API funcionando correctamente' });
+  res.json({ 
+    message: 'API funcionando correctamente',
+    endpoints: {
+      api: '/api/*',
+      bot: '/api/bot/*',
+      uploads: '/uploads/*'
+    }
+  });
 });
 
 // Permitir archivos grandes
@@ -119,5 +130,7 @@ app.use((err, req, res, next) => {
 // Iniciar servidor
 const PORT = process.env.PORT;
 app.listen(PORT, () => {
-  console.log(`Servidor corriendo en el puerto ${PORT}`);
+  console.log(`🚀 Servidor corriendo en el puerto ${PORT}`);
+  console.log(`🤖 Bot API disponible en: http://localhost:${PORT}/api/bot`);
+  console.log(`📡 API disponible en: http://localhost:${PORT}/api`);
 }); 
