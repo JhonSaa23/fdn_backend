@@ -29,6 +29,7 @@
     "node-dbf": "^0.4.0",
     "pdfkit": "^0.17.1",
     "read-excel-file": "^5.7.1",
+    "socket.io": "^4.8.1",
     "xlsx": "^0.18.5",
     "yadbf": "^3.3.0"
   },

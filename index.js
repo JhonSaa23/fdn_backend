@@ -3,6 +3,8 @@ const express = require('express');
 const cors = require('cors');
 const path = require('path');
 const cookieParser = require('cookie-parser');
+const { createServer } = require('http');
+const { Server } = require('socket.io');
 const medifarmaRoutes = require('./routes/medifarma');
 const bcpRoutes = require('./routes/bcp');
 const exportRoutes = require('./routes/export');
@@ -23,8 +25,17 @@ const productosRoutes = require('./routes/productos');
 const canjeRoutes = require('./routes/canjeRoutes');
 const guiasVentaRoutes = require('./routes/guiasVentaRoutes');
 const botRoutes = require('./routes/botRoutes');
+const juegoRoutes = require('./routes/juegoRoutes');
 
 const app = express();
+const server = createServer(app);
+const io = new Server(server, {
+  cors: {
+    origin: true,
+    methods: ["GET", "POST"],
+    credentials: true
+  }
+});
 
 // Configuración CORS mejorada para ngrok
 app.use(cors({
@@ -87,6 +98,9 @@ app.use('/api/guias-venta', guiasVentaRoutes);
 // Rutas del bot
 app.use('/api/bot', botRoutes);
 
+// Rutas del juego
+app.use('/api/juego', juegoRoutes);
+
 // Ruta de prueba
 app.get('/', (req, res) => {
   res.json({ 
@@ -127,10 +141,14 @@ app.use((err, req, res, next) => {
   });
 });
 
+// Lógica del juego de 3 en raya
+require('./services/gameService')(io);
+
 // Iniciar servidor
 const PORT = process.env.PORT;
-app.listen(PORT, () => {
+server.listen(PORT, () => {
   console.log(`🚀 Servidor corriendo en el puerto ${PORT}`);
   console.log(`🤖 Bot API disponible en: http://localhost:${PORT}/api/bot`);
   console.log(`📡 API disponible en: http://localhost:${PORT}/api`);
+  console.log(`🎮 Juego WebSocket disponible en: http://localhost:${PORT}`);
 }); 
