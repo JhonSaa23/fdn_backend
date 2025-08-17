@@ -32,9 +32,14 @@ const server = createServer(app);
 const io = new Server(server, {
   cors: {
     origin: true,
-    methods: ["GET", "POST"],
-    credentials: true
-  }
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    credentials: true,
+    allowedHeaders: ['Content-Type', 'Authorization', 'ngrok-skip-browser-warning', 'Accept']
+  },
+  transports: ['websocket', 'polling'],
+  allowEIO3: true,
+  pingTimeout: 60000,
+  pingInterval: 25000
 });
 
 // Configuración CORS mejorada para ngrok
@@ -108,8 +113,19 @@ app.get('/', (req, res) => {
     endpoints: {
       api: '/api/*',
       bot: '/api/bot/*',
-      uploads: '/uploads/*'
-    }
+      uploads: '/uploads/*',
+      juego: '/api/juego/*'
+    },
+    socketio: 'Disponible en /socket.io/'
+  });
+});
+
+// Ruta de prueba para socket.io
+app.get('/socket-test', (req, res) => {
+  res.json({
+    message: 'Socket.io está configurado',
+    connectedClients: io.engine.clientsCount,
+    transports: io.engine.transports
   });
 });
 
@@ -138,6 +154,19 @@ app.use((err, req, res, next) => {
     success: false,
     error: 'Error interno del servidor',
     details: process.env.NODE_ENV === 'development' ? err.message : null
+  });
+});
+
+// Debug de conexiones socket.io
+io.on('connection', (socket) => {
+  console.log(`🔌 Socket conectado: ${socket.id}`);
+  
+  socket.on('disconnect', (reason) => {
+    console.log(`🔌 Socket desconectado: ${socket.id}, razón: ${reason}`);
+  });
+  
+  socket.on('error', (error) => {
+    console.error(`🔌 Error en socket ${socket.id}:`, error);
   });
 });
 
