@@ -14,6 +14,7 @@ router.get('/', async (req, res) => {
     const query = `
       SELECT 
         s.codpro,
+        p.Codlab AS CodMifSap,
         p.Nombre AS NombreProducto,
         s.almacen,
         s.lote,
@@ -71,6 +72,7 @@ router.get('/export', async (req, res) => {
     const query = `
       SELECT 
         s.codpro,
+        p.Codlab AS CodMifSap,
         p.Nombre AS NombreProducto,
         s.almacen,
         s.lote,
@@ -108,6 +110,7 @@ router.get('/export', async (req, res) => {
     // Definir columnas
     worksheet.columns = [
       { header: 'CodPro', key: 'codpro', width: 12 },
+      { header: 'CÓD_MIF (SAP)', key: 'codMifSap', width: 15 },
       { header: 'Nombre', key: 'NombreProducto', width: 40 },
       { header: 'Almacen', key: 'almacen', width: 10 },
       { header: 'Lote', key: 'lote', width: 18 },
@@ -122,7 +125,8 @@ router.get('/export', async (req, res) => {
     // Agregar filas
     result.recordset.forEach(row => {
       worksheet.addRow({
-        codpro: row.codpro ? row.codpro.toString().padStart(50, '0') : '',
+        codpro: row.codpro ? row.codpro.toString() : '',
+        codMifSap: row.CodMifSap || '',
         NombreProducto: row.NombreProducto || '',
         almacen: row.almacen || '',
         lote: row.lote || '',
@@ -146,7 +150,7 @@ router.get('/export', async (req, res) => {
     // Agregar autofiltro
     worksheet.autoFilter = {
       from: 'A1',
-      to: 'J1'
+      to: 'K1'
     };
 
     // Aplicar formato de cabecera

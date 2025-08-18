@@ -518,6 +518,7 @@ router.post('/compras-laboratorio', async (req, res) => {
       WITH CompraAcumulada AS (
           SELECT
               RTRIM(P.Codlab) AS "CÓD_MIF (SAP)",
+              RTRIM(P.Codpro) AS "CÓDIGO PRODUCTO",
               RTRIM(P.Nombre) AS DESCRIPCION,
               S.saldo AS "CANTIDAD REAL DISPONIBLE",
               DC.Numero AS "N° FACTURA COMPRA",
@@ -539,12 +540,13 @@ router.post('/compras-laboratorio', async (req, res) => {
           WHERE
               LEFT(RTRIM(P.Codpro), 2) = @codigoLaboratorio
           GROUP BY
-              P.Codlab, P.Nombre, DC.Numero, DD.Cantidad, DD.Lote, DD.Vencimiento, DC.Fecha, S.saldo
+              P.Codlab, P.Codpro, P.Nombre, DC.Numero, DD.Cantidad, DD.Lote, DD.Vencimiento, DC.Fecha, S.saldo
           HAVING
               S.saldo > 0
       )
       SELECT
           "CÓD_MIF (SAP)",
+          "CÓDIGO PRODUCTO",
           DESCRIPCION,
           "CANTIDAD REAL DISPONIBLE",
           "N° FACTURA COMPRA",
@@ -601,6 +603,7 @@ router.post('/compras-laboratorio/export', async (req, res) => {
       WITH CompraAcumulada AS (
           SELECT
               RTRIM(P.Codlab) AS "CÓD_MIF (SAP)",
+              RTRIM(P.Codpro) AS "CÓDIGO PRODUCTO",
               RTRIM(P.Nombre) AS DESCRIPCION,
               S.saldo AS "CANTIDAD REAL DISPONIBLE",
               DC.Numero AS "N° FACTURA COMPRA",
@@ -622,12 +625,13 @@ router.post('/compras-laboratorio/export', async (req, res) => {
           WHERE
               LEFT(RTRIM(P.Codpro), 2) = @codigoLaboratorio
           GROUP BY
-              P.Codlab, P.Nombre, DC.Numero, DD.Cantidad, DD.Lote, DD.Vencimiento, DC.Fecha, S.saldo
+              P.Codlab, P.Codpro, P.Nombre, DC.Numero, DD.Cantidad, DD.Lote, DD.Vencimiento, DC.Fecha, S.saldo
           HAVING
               S.saldo > 0
       )
       SELECT
           "CÓD_MIF (SAP)",
+          "CÓDIGO PRODUCTO",
           DESCRIPCION,
           "CANTIDAD REAL DISPONIBLE",
           "N° FACTURA COMPRA",
@@ -665,6 +669,7 @@ router.post('/compras-laboratorio/export', async (req, res) => {
     // Definir las columnas
     worksheet.columns = [
       { header: 'CÓD_MIF (SAP)', key: 'codMif', width: 15 },
+      { header: 'CÓDIGO PRODUCTO', key: 'codigoProducto', width: 20 },
       { header: 'DESCRIPCIÓN', key: 'descripcion', width: 40 },
       { header: 'CANTIDAD REAL DISPONIBLE', key: 'cantidadReal', width: 20 },
       { header: 'N° FACTURA COMPRA', key: 'facturaCompra', width: 20 },
@@ -678,6 +683,7 @@ router.post('/compras-laboratorio/export', async (req, res) => {
     result.recordset.forEach(row => {
       worksheet.addRow({
         codMif: row['CÓD_MIF (SAP)'],
+        codigoProducto: row['CÓDIGO PRODUCTO'],
         descripcion: row.DESCRIPCION,
         cantidadReal: row['CANTIDAD REAL DISPONIBLE'],
         facturaCompra: row['N° FACTURA COMPRA'],
