@@ -26,6 +26,7 @@ const canjeRoutes = require('./routes/canjeRoutes');
 const guiasVentaRoutes = require('./routes/guiasVentaRoutes');
 const botRoutes = require('./routes/botRoutes');
 const juegoRoutes = require('./routes/juegoRoutes');
+const vendedoresRoutes = require('./routes/vendedores');
 
 const app = express();
 const server = createServer(app);
@@ -99,6 +100,7 @@ app.use('/api/saldos', saldosRoutes);
 app.use('/api/productos', productosRoutes);
 app.use('/api', canjeRoutes);
 app.use('/api/guias-venta', guiasVentaRoutes);
+app.use('/api/vendedores', vendedoresRoutes);
 
 // Rutas del bot
 app.use('/api/bot', botRoutes);
