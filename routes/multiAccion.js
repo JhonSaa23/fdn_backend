@@ -5,9 +5,11 @@ const { executeQuery } = require('../database');
 // Buscar pedido
 router.get('/pedido/:numero', async (req, res) => {
   try {
+    console.log('🚀 ENDPOINT PEDIDO LLAMADO con número:', req.params.numero);
     const numeroLimpio = req.params.numero.trim();
     
-    const query = `
+    // Buscar información del pedido
+    const pedidoQuery = `
       SELECT 
         Numero,
         Laboratorio,
@@ -22,15 +24,68 @@ router.get('/pedido/:numero', async (req, res) => {
       WHERE Numero = @numero
     `;
 
-    const result = await executeQuery(query, { numero: numeroLimpio });
+    const pedidoResult = await executeQuery(pedidoQuery, { numero: numeroLimpio });
+    console.log('📋 Pedido encontrado:', pedidoResult.recordset[0]);
 
-    if (result.recordset.length > 0) {
+    if (pedidoResult.recordset.length > 0) {
+      // Buscar detalles del pedido
+      const detallesQuery = `
+        SELECT 
+          d.Numero,
+          d.Producto,
+          p.Nombre as NombreProducto,
+          d.Cantidad,
+          d.Costo,
+          d.Descuento1,
+          d.Descuento2,
+          d.Descuento3,
+          d.Subtotal
+        FROM DetaPedido d
+        LEFT JOIN Productos p ON d.Producto = p.CodPro
+        WHERE d.Numero = @numero
+        ORDER BY d.Producto
+      `;
+
+      console.log('🔍 Ejecutando consulta de detalles con número:', numeroLimpio);
+      const detallesResult = await executeQuery(detallesQuery, { numero: numeroLimpio });
+
+      // Debug: mostrar información de los detalles encontrados
+      console.log(`🔍 Detalles encontrados para pedido ${numeroLimpio}:`, detallesResult.recordset.length);
+      console.log('🔍 Resultado completo de detalles:', detallesResult);
+      
+      if (detallesResult.recordset.length > 0) {
+        console.log('📋 Primer detalle:', detallesResult.recordset[0]);
+      } else {
+        // Debug: buscar todos los detalles para ver qué hay
+        const debugQuery = `SELECT TOP 5 Numero, Producto FROM DetaPedido WHERE Numero LIKE '%${numeroLimpio}%'`;
+        const debugResult = await executeQuery(debugQuery);
+        console.log('🔍 Debug - Búsqueda parcial:', debugResult.recordset);
+        
+        // También buscar el pedido exacto
+        const exactQuery = `SELECT TOP 5 Numero, Producto FROM DetaPedido WHERE Numero = '${numeroLimpio}'`;
+        const exactResult = await executeQuery(exactQuery);
+        console.log('🔍 Debug - Búsqueda exacta:', exactResult.recordset);
+        
+        // Verificar si hay algún detalle en la tabla
+        const allQuery = `SELECT TOP 10 Numero, Producto FROM DetaPedido ORDER BY Numero DESC`;
+        const allResult = await executeQuery(allQuery);
+        console.log('🔍 Debug - Últimos 10 detalles en la tabla:', allResult.recordset);
+      }
+
       // Asegurarnos de que los campos sean números
       const pedido = {
-        ...result.recordset[0],
-        Validado: parseInt(result.recordset[0].Validado, 10),
-        Eliminado: parseInt(result.recordset[0].Eliminado, 10)
+        ...pedidoResult.recordset[0],
+        Validado: parseInt(pedidoResult.recordset[0].Validado, 10),
+        Eliminado: parseInt(pedidoResult.recordset[0].Eliminado, 10),
+        detalles: detallesResult.recordset
       };
+      
+      console.log('📦 Pedido completo a enviar:', {
+        numero: pedido.Numero,
+        detallesCount: pedido.detalles.length,
+        detalles: pedido.detalles
+      });
+      
       res.json(pedido);
     } else {
       res.status(404).json({ message: 'Pedido no encontrado' });
@@ -71,6 +126,26 @@ router.post('/pedido/:numero/invalidar', async (req, res) => {
   } catch (error) {
     console.error('Error al invalidar pedido:', error);
     res.status(500).json({ message: 'Error al invalidar pedido' });
+  }
+});
+
+// Eliminar producto del pedido
+router.delete('/pedido/:numero/producto/:producto', async (req, res) => {
+  try {
+    const numeroLimpio = req.params.numero.trim();
+    const producto = req.params.producto.trim();
+    
+    const deleteQuery = 'DELETE FROM DetaPedido WHERE Numero = @numero AND Producto = @producto';
+    const result = await executeQuery(deleteQuery, { numero: numeroLimpio, producto });
+
+    if (result.rowsAffected[0] > 0) {
+      res.json({ message: 'Producto eliminado del pedido correctamente' });
+    } else {
+      res.status(404).json({ message: 'Producto no encontrado en el pedido' });
+    }
+  } catch (error) {
+    console.error('Error al eliminar producto del pedido:', error);
+    res.status(500).json({ message: 'Error al eliminar producto del pedido' });
   }
 });
 
