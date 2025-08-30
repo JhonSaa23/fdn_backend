@@ -18,7 +18,7 @@ const getAllUsers = async (req, res) => {
                 ModificadoPor,
                 CASE 
                     WHEN Rol = 'ADMIN' THEN 'Administrador'
-                    WHEN Rol = 'USER' THEN 'Usuario'
+                    WHEN Rol = 'REPRESENTANTE' THEN 'Representante'
                     ELSE Rol
                 END AS RolDescripcion,
                 CASE 
@@ -130,13 +130,22 @@ const getUserById = async (req, res) => {
 // Crear nuevo usuario
 const createUser = async (req, res) => {
     try {
-        const { codUserBot, nombre, numero, rol = 'USER', laboratorio, creadoPor } = req.body;
+        const { codUserBot, nombre, numero, rol, laboratorio, creadoPor } = req.body;
 
         // Validaciones
-        if (!codUserBot || !nombre || !numero) {
+        if (!codUserBot || !nombre || !numero || !rol) {
             return res.status(400).json({
                 success: false,
-                message: 'Código de usuario, nombre y número son obligatorios'
+                message: 'Código de usuario, nombre, número y rol son obligatorios'
+            });
+        }
+
+        // Validar que el rol sea válido
+        const rolesValidos = ['ADMIN', 'REPRESENTANTE'];
+        if (!rolesValidos.includes(rol)) {
+            return res.status(400).json({
+                success: false,
+                message: 'Rol inválido. Roles válidos: ADMIN, REPRESENTANTE'
             });
         }
 
@@ -213,6 +222,15 @@ const updateUser = async (req, res) => {
             return res.status(400).json({
                 success: false,
                 message: 'Código de usuario, nombre, número y rol son obligatorios'
+            });
+        }
+
+        // Validar que el rol sea válido
+        const rolesValidos = ['ADMIN', 'REPRESENTANTE'];
+        if (!rolesValidos.includes(rol)) {
+            return res.status(400).json({
+                success: false,
+                message: 'Rol inválido. Roles válidos: ADMIN, REPRESENTANTE'
             });
         }
 

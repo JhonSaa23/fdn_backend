@@ -118,6 +118,9 @@ SELECT
     ModificadoPor,
     CASE 
         WHEN Rol = 'ADMIN' THEN 'Administrador'
+        WHEN Rol = 'TRABAJADOR' THEN 'Trabajador'
+        WHEN Rol = 'VENDEDOR' THEN 'Vendedor'
+        WHEN Rol = 'REPRESENTANTE' THEN 'Representante'
         WHEN Rol = 'USER' THEN 'Usuario'
         ELSE Rol
     END AS RolDescripcion,

@@ -222,7 +222,7 @@ router.get('/pedidos/representante/:codigoRepresentante', async (req, res) => {
         const { codigoRepresentante } = req.params;
         
         const query = `
-            SELECT TOP 20
+            SELECT TOP 5
                 RTRIM(p.Numero) AS Numero,
                 p.Fecha,
                 p.Representante AS CodigoRepresentante,
@@ -264,6 +264,62 @@ router.get('/pedidos/representante/:codigoRepresentante', async (req, res) => {
         
     } catch (error) {
         console.error('Error en consultar pedidos por representante:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error al consultar pedidos',
+            error: error.message
+        });
+    }
+});
+
+// Consultar pedidos de un representante por su coduserbot
+router.get('/pedidos-representante/:coduserbot', async (req, res) => {
+    try {
+        const { coduserbot } = req.params;
+        
+        const query = `
+            SELECT TOP 5
+                RTRIM(p.Numero) AS Numero,
+                p.Fecha,
+                p.Representante AS CodigoRepresentante,
+                c.Razon AS NombreCliente,
+                p.Tipo,
+                CASE 
+                    WHEN p.Tipo = 5 THEN 'Pedido'
+                    WHEN p.Tipo = 1 THEN 'Factura'
+                    WHEN p.Tipo = 2 THEN 'Boleta'
+                    ELSE 'Otro'
+                END AS TipoDescripcion,
+                p.Estado,
+                CASE 
+                    WHEN p.Estado = 1 THEN 'Pendiente'
+                    WHEN p.Estado = 2 THEN 'En Proceso'
+                    WHEN p.Estado = 3 THEN 'Aprobado'
+                    WHEN p.Estado = 4 THEN 'Rechazado'
+                    WHEN p.Estado = 5 THEN 'Enviado'
+                    WHEN p.Estado = 6 THEN 'Entregado'
+                    WHEN p.Estado = 7 THEN 'Cancelado'
+                    WHEN p.Estado = 8 THEN 'Facturado'
+                    ELSE 'Desconocido'
+                END AS EstadoDescripcion,
+                p.Total
+            FROM Doccabped p
+            LEFT JOIN Clientes c ON p.CodClie = c.Codclie
+            WHERE p.Representante = @coduserbot AND p.Eliminado = 0
+            ORDER BY p.Fecha DESC
+        `;
+        
+        const result = await dbService.executeQuery(query, [
+            { name: 'coduserbot', type: sql.VarChar, value: coduserbot }
+        ]);
+        
+        res.json({
+            success: true,
+            data: result.recordset
+        });
+        
+    } catch (error) {
+        console.error('Error en consultar pedidos por coduserbot:', error);
         res.status(500).json({
             success: false,
             message: 'Error al consultar pedidos',
