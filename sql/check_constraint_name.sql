@@ -1,0 +1,18 @@
+-- Script para verificar el nombre real de la restricción PRIMARY KEY
+SELECT 
+    tc.CONSTRAINT_NAME,
+    tc.TABLE_NAME,
+    tc.CONSTRAINT_TYPE
+FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS tc
+WHERE tc.TABLE_NAME = 'UsersBot' 
+AND tc.CONSTRAINT_TYPE = 'PRIMARY KEY';
+
+-- También verificar las columnas de la tabla
+SELECT 
+    COLUMN_NAME,
+    DATA_TYPE,
+    IS_NULLABLE,
+    COLUMNPROPERTY(object_id(TABLE_SCHEMA + '.' + TABLE_NAME), COLUMN_NAME, 'IsIdentity') as IS_IDENTITY
+FROM INFORMATION_SCHEMA.COLUMNS
+WHERE TABLE_NAME = 'UsersBot'
+ORDER BY ORDINAL_POSITION;
