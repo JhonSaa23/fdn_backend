@@ -6,7 +6,7 @@ const sql = require('mssql');
 // Endpoint para consultar guías con paginación (de la más reciente a la más antigua)
 router.get('/listar', async (req, res) => {
   try {
-    const { page = 1, limit = 40, tipo, numero, fechaDesde, fechaHasta } = req.query;
+    const { page = 1, limit = 500, tipo, numero, fechaDesde, fechaHasta } = req.query;
 
     if (!tipo || (tipo !== 'GUIA' && tipo !== 'FACTURA')) {
       return res.json({ success: true, data: [], pagination: { currentPage: 1, totalPages: 0, limit: 40, total: 0, hasMore: false } });
@@ -38,7 +38,7 @@ router.get('/listar', async (req, res) => {
         countQuery += ' AND Fecha <= @fechaHasta';
         params.fechaHasta = new Date(fechaHasta.trim());
       }
-      baseQuery += ' ORDER BY Fecha DESC, Numero DESC';
+      baseQuery += ' ORDER BY Numero DESC';
       baseQuery += ` OFFSET ${offset} ROWS FETCH NEXT ${limitNum} ROWS ONLY`;
     } else if (tipo === 'FACTURA') {
       baseQuery = `SELECT Numero, Tipo, CodClie, Fecha, Dias, FechaV, Bruto, Descuento, Flete, Subtotal, Igv, Total, Moneda, Cambio, Vendedor, Transporte, Eliminado, Impreso, NroPedido, NroGuia
@@ -59,7 +59,7 @@ router.get('/listar', async (req, res) => {
         countQuery += ' AND Fecha <= @fechaHasta';
         params.fechaHasta = new Date(fechaHasta.trim());
       }
-      baseQuery += ' ORDER BY Fecha DESC, Numero DESC';
+      baseQuery += ' ORDER BY Numero DESC';
       baseQuery += ` OFFSET ${offset} ROWS FETCH NEXT ${limitNum} ROWS ONLY`;
     }
 
