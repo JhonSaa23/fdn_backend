@@ -491,28 +491,42 @@ router.get('/stock-completo-pdf/:laboratorio', async (req, res) => {
         
         console.log(`📊 Generando PDF para laboratorio: ${laboratorio}`);
         
-        // Consultar el stock completo por laboratorio
+        // Consultar el stock completo por laboratorio con más detalles
         const query = `
             SELECT
-                RTRIM(p.CodPro) AS CodigoProducto,
-                LTRIM(RTRIM(p.Nombre)) AS NombreProducto,
-                SUM(s.Saldo) AS StockAlmacen1
+                RTRIM(p.CodPro) AS Codpro,
+                LTRIM(RTRIM(p.Nombre)) AS Producto,
+                s.Saldo AS Stock,
+                s.Lote,
+                s.Vencimiento
             FROM
                 Productos p
             INNER JOIN
                 Saldos s ON p.CodPro = s.CodPro
             WHERE
-                s.Almacen = 1
+                s.Almacen <> 3
                 AND p.Eliminado = 0
                 AND LEFT(RTRIM(p.CodPro), 2) = @laboratorio
-            GROUP BY
-                p.CodPro, p.Nombre
+                AND s.Saldo <> 0
             ORDER BY
-                StockAlmacen1 DESC
+                RTRIM(p.CodPro), s.Vencimiento
         `;
         
-        const result = await dbService.executeQuery(query, [
-            { name: 'laboratorio', type: sql.NVarChar, value: laboratorio }
+        // Consultar el nombre del laboratorio
+        const labQuery = `
+            SELECT RTRIM(CodLab) AS CodLab, Descripcion 
+            FROM Laboratorios 
+            WHERE RTRIM(CodLab) = @laboratorio
+        `;
+        
+        // Ejecutar ambas consultas
+        const [result, labResult] = await Promise.all([
+            dbService.executeQuery(query, [
+                { name: 'laboratorio', type: sql.NVarChar, value: laboratorio }
+            ]),
+            dbService.executeQuery(labQuery, [
+                { name: 'laboratorio', type: sql.NVarChar, value: laboratorio }
+            ])
         ]);
         
         if (result.recordset.length === 0) {
@@ -522,13 +536,18 @@ router.get('/stock-completo-pdf/:laboratorio', async (req, res) => {
             });
         }
         
-        console.log(`📊 Generando PDF con ${result.recordset.length} productos...`);
+        // Obtener el nombre del laboratorio
+        const nombreLaboratorio = labResult.recordset.length > 0 
+            ? labResult.recordset[0].Descripcion 
+            : `Laboratorio ${laboratorio}`;
+        
+        console.log(`📊 Generando PDF con ${result.recordset.length} productos para ${nombreLaboratorio}...`);
         
         // Generar el PDF
         const PDFDocument = require('pdfkit');
         const doc = new PDFDocument({
             size: 'A4',
-            margin: 50
+            margin: 30
         });
         
         // Configurar headers de respuesta
@@ -539,53 +558,61 @@ router.get('/stock-completo-pdf/:laboratorio', async (req, res) => {
         doc.pipe(res);
         
         // Agregar contenido al PDF
-        doc.fontSize(20).text('📊 STOCK COMPLETO DE PRODUCTOS', { align: 'center' });
-        doc.moveDown();
-        doc.fontSize(12).text(`Laboratorio: ${laboratorio}`, { align: 'center' });
-        doc.moveDown();
-        doc.fontSize(12).text(`Fecha de generación: ${new Date().toLocaleDateString('es-ES')}`, { align: 'center' });
-        doc.moveDown();
+        doc.fontSize(16).text('STOCK COMPLETO DE PRODUCTOS', { align: 'center' });
+        doc.moveDown(0.5);
+        doc.fontSize(10).text(`Laboratorio: ${nombreLaboratorio}`, { align: 'center' });
+        doc.moveDown(0.5);
+        // Obtener fecha local
+        const today = new Date();
+        const localDate = today.getDate() + '/' + 
+            String(today.getMonth() + 1).padStart(2, '0') + '/' + 
+            today.getFullYear();
+        
+        doc.fontSize(10).text(`Fecha de generación: ${localDate}`, { align: 'center' });
+        doc.moveDown(0.5);
         doc.fontSize(10).text(`Total de productos: ${result.recordset.length}`, { align: 'center' });
         doc.moveDown(2);
         
         // Tabla de productos
         let yPosition = doc.y;
-        const startX = 50;
-        const colWidths = [80, 250, 100];
+        const startX = 30;
+        const colWidths = [30, 300, 40, 65, 70];
         
         // Headers de la tabla
-        doc.fontSize(10).font('Helvetica-Bold');
+        doc.fontSize(9).font('Helvetica-Bold');
         doc.text('Código', startX, yPosition);
-        doc.text('Nombre del Producto', startX + colWidths[0] + 10, yPosition);
-        doc.text('Stock', startX + colWidths[0] + colWidths[1] + 20, yPosition);
+        doc.text('Producto', startX + colWidths[0] + 5, yPosition);
+        doc.text('Stock', startX + colWidths[0] + colWidths[1] + 10, yPosition);
+        doc.text('Lote', startX + colWidths[0] + colWidths[1] + colWidths[2] + 15, yPosition);
+        doc.text('Vencimiento', startX + colWidths[0] + colWidths[1] + colWidths[2] + colWidths[3] + 20, yPosition);
         
-        yPosition += 20;
-        doc.moveTo(startX, yPosition).lineTo(startX + colWidths[0] + colWidths[1] + colWidths[2] + 30, yPosition).stroke();
         yPosition += 10;
+        doc.moveTo(startX, yPosition).lineTo(startX + colWidths[0] + colWidths[1] + colWidths[2] + colWidths[3] + colWidths[4] + 25, yPosition).stroke();
+        yPosition += 8;
         
         // Contenido de la tabla
-        doc.fontSize(9).font('Helvetica');
+        doc.fontSize(8).font('Helvetica');
         let rowCount = 0;
         
         for (const producto of result.recordset) {
             // Verificar si necesitamos una nueva página
-            if (yPosition > 700) {
+            if (yPosition > 750) {
                 doc.addPage();
                 yPosition = 50;
             }
             
-            doc.text(producto.CodigoProducto || '', startX, yPosition);
-            doc.text(producto.NombreProducto || '', startX + colWidths[0] + 10, yPosition);
-            doc.text((producto.StockAlmacen1 || 0).toString(), startX + colWidths[0] + colWidths[1] + 20, yPosition);
+            // Formatear fecha de vencimiento
+            const vencimiento = producto.Vencimiento ? 
+                new Date(producto.Vencimiento).toLocaleDateString('es-ES') : '';
             
-            yPosition += 15;
+            doc.text(producto.Codpro || '', startX, yPosition);
+            doc.text(producto.Producto || '', startX + colWidths[0] + 5, yPosition);
+            doc.text((producto.Stock || 0).toString(), startX + colWidths[0] + colWidths[1] + 10, yPosition);
+            doc.text(producto.Lote || '', startX + colWidths[0] + colWidths[1] + colWidths[2] + 15, yPosition);
+            doc.text(vencimiento, startX + colWidths[0] + colWidths[1] + colWidths[2] + colWidths[3] + 20, yPosition);
+            
+            yPosition += 12;
             rowCount++;
-            
-            // Agregar línea separadora cada 10 filas
-            if (rowCount % 10 === 0) {
-                doc.moveTo(startX, yPosition).lineTo(startX + colWidths[0] + colWidths[1] + colWidths[2] + 30, yPosition).stroke();
-                yPosition += 5;
-            }
         }
         
         // Finalizar el PDF

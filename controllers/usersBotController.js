@@ -317,8 +317,8 @@ const updateUser = async (req, res) => {
     }
 };
 
-// Eliminar usuario (desactivar)
-const deleteUser = async (req, res) => {
+// Desactivar usuario (cambiar estado a inactivo)
+const deactivateUser = async (req, res) => {
     try {
         const { id } = req.params;
         const { modificadoPor } = req.body;
@@ -347,6 +347,113 @@ const deleteUser = async (req, res) => {
         res.json({
             success: true,
             message: 'Usuario desactivado exitosamente'
+        });
+
+    } catch (error) {
+        console.error('Error al desactivar usuario del bot:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error al desactivar usuario del bot',
+            error: error.message
+        });
+    }
+};
+
+// Reactivar usuario (cambiar estado a activo)
+const activateUser = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { modificadoPor } = req.body;
+
+        const query = `
+            UPDATE UsersBot 
+            SET 
+                Activo = 1,
+                FechaModificacion = GETDATE(),
+                ModificadoPor = @modificadoPor
+            WHERE CodUserBot = @id
+        `;
+
+        const result = await dbService.executeQuery(query, [
+            { name: 'modificadoPor', type: sql.NVarChar, value: modificadoPor || null },
+            { name: 'id', type: sql.NVarChar, value: id }
+        ]);
+
+        if (result.rowsAffected[0] === 0) {
+            return res.status(404).json({
+                success: false,
+                message: 'Usuario no encontrado'
+            });
+        }
+
+        res.json({
+            success: true,
+            message: 'Usuario reactivado exitosamente'
+        });
+
+    } catch (error) {
+        console.error('Error al reactivar usuario del bot:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error al reactivar usuario del bot',
+            error: error.message
+        });
+    }
+};
+
+// Eliminar usuario completamente de la base de datos
+const deleteUser = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { modificadoPor } = req.body;
+
+        // Primero verificar que el usuario existe
+        const checkQuery = `SELECT CodUserBot, Nombre FROM UsersBot WHERE CodUserBot = @id`;
+        const checkResult = await dbService.executeQuery(checkQuery, [
+            { name: 'id', type: sql.NVarChar, value: id }
+        ]);
+
+        if (checkResult.recordset.length === 0) {
+            return res.status(404).json({
+                success: false,
+                message: 'Usuario no encontrado'
+            });
+        }
+
+        const userName = checkResult.recordset[0].Nombre;
+
+        // Eliminar completamente el usuario
+        const deleteQuery = `DELETE FROM UsersBot WHERE CodUserBot = @id`;
+        const result = await dbService.executeQuery(deleteQuery, [
+            { name: 'id', type: sql.NVarChar, value: id }
+        ]);
+
+        if (result.rowsAffected[0] === 0) {
+            return res.status(404).json({
+                success: false,
+                message: 'Usuario no encontrado'
+            });
+        }
+
+        // Registrar en auditoría (si existe la tabla)
+        try {
+            const auditQuery = `
+                INSERT INTO UsersBotAudit (CodUserBot, Accion, ValoresAnteriores, ValoresNuevos, FechaAccion, UsuarioAccion)
+                VALUES (@codUserBot, 'ELIMINADO', @valoresAnteriores, 'USUARIO ELIMINADO', GETDATE(), @usuarioAccion)
+            `;
+            
+            await dbService.executeQuery(auditQuery, [
+                { name: 'codUserBot', type: sql.NVarChar, value: id },
+                { name: 'valoresAnteriores', type: sql.NVarChar, value: `Usuario: ${userName}` },
+                { name: 'usuarioAccion', type: sql.NVarChar, value: modificadoPor || 'Sistema' }
+            ]);
+        } catch (auditError) {
+            console.log('No se pudo registrar en auditoría:', auditError.message);
+        }
+
+        res.json({
+            success: true,
+            message: 'Usuario eliminado completamente de la base de datos'
         });
 
     } catch (error) {
@@ -430,6 +537,8 @@ module.exports = {
     getUserById,
     createUser,
     updateUser,
+    deactivateUser,
+    activateUser,
     deleteUser,
     getLaboratorios,
     getAuditLog

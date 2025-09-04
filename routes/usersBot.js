@@ -17,7 +17,13 @@ router.post('/', usersBotController.createUser);
 // Actualizar usuario
 router.put('/:id', usersBotController.updateUser);
 
-// Eliminar usuario (desactivar)
+// Desactivar usuario (cambiar estado a inactivo)
+router.patch('/:id/deactivate', usersBotController.deactivateUser);
+
+// Reactivar usuario (cambiar estado a activo)
+router.patch('/:id/activate', usersBotController.activateUser);
+
+// Eliminar usuario completamente de la base de datos
 router.delete('/:id', usersBotController.deleteUser);
 
 // Obtener laboratorios disponibles

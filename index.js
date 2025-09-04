@@ -48,7 +48,7 @@ const io = new Server(server, {
 app.use(cors({
   origin: true, // Permitir todos los orígenes en desarrollo
   credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'ngrok-skip-browser-warning', 'Accept']
 }));
 
