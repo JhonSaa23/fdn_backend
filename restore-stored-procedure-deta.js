@@ -36,3 +36,4 @@ VALUES(@num,@idpro,@lote,@vence,@cantidad,@guia,@referencia,@tipodoc)
 }
 
 restoreStoredProcedureDeta();
+

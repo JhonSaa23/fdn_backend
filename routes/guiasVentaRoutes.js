@@ -23,4 +23,7 @@ router.post('/actualizar-contador', guiasVentaController.actualizarContador);
 // Actualizar contador de Guía de Venta
 router.post('/actualizar-contador-guia-venta', guiasVentaController.actualizarContadorGuiaVenta);
 
+// Actualizar contador al último número existente
+router.post('/actualizar-contador-ultimo-existente', guiasVentaController.actualizarContadorAlUltimoExistente);
+
 module.exports = router; 

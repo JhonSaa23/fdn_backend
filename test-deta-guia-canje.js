@@ -65,3 +65,4 @@ async function testDetaGuiaCanje() {
 }
 
 testDetaGuiaCanje();
+

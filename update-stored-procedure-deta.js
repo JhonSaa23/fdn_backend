@@ -43,3 +43,4 @@ VALUES(@num,@idpro,@lote,@vence,@cantidad,@guia,0,@referencia,@tipodoc)
 }
 
 updateStoredProcedureDeta();
+

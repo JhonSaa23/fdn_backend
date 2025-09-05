@@ -249,4 +249,52 @@ exports.actualizarContadorGuiaVenta = async (req, res) => {
             error: error.message
         });
     }
+};
+
+
+// Actualizar contador al último número existente y continuar secuencia
+exports.actualizarContadorAlUltimoExistente = async (req, res) => {
+    try {
+        console.log('🔢 Actualizando contador al último número existente...');
+        
+        // Buscar el último número de guía de venta que realmente existe
+        const ultimoNumeroResult = await dbService.executeQuery(
+            `SELECT TOP 1 Numero FROM DoccabGuia 
+             WHERE Numero LIKE '%T002%' 
+             AND Fecha >= '06/01/2025' 
+             ORDER BY Numero DESC`,
+            []
+        );
+        
+        if (ultimoNumeroResult.recordset.length > 0) {
+            const ultimoNumeroExistente = ultimoNumeroResult.recordset[0].Numero;
+            console.log(`📋 Último número de guía existente: ${ultimoNumeroExistente}`);
+            
+            // Actualizar el contador en la tabla Tablas
+            const updateResult = await dbService.executeQuery(
+                `UPDATE Tablas SET c_describe = @numero WHERE n_codTabla = 35 AND n_numero = 2`,
+                [{ name: 'numero', type: sql.NVarChar, value: ultimoNumeroExistente }]
+            );
+            
+            console.log(`✅ Contador actualizado a: ${ultimoNumeroExistente}`);
+            res.status(200).json({
+                success: true,
+                message: 'Contador actualizado al último número existente',
+                ultimoNumero: ultimoNumeroExistente
+            });
+        } else {
+            console.log('⚠️ No se encontraron guías de venta para actualizar el contador');
+            res.status(404).json({
+                success: false,
+                message: 'No se encontraron guías de venta para actualizar el contador'
+            });
+        }
+    } catch (error) {
+        console.error('Error en actualizarContadorAlUltimoExistente:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error al actualizar contador al último número existente',
+            error: error.message
+        });
+    }
 }; 

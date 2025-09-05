@@ -692,10 +692,14 @@ exports.verificarEstructuraTabla = async (req, res) => {
 exports.buscarGuiaCanje = async (req, res) => {
     const { numero } = req.params;
     try {
+        // Para campos char, necesitamos usar RTRIM para eliminar espacios en blanco
         const result = await dbService.executeQuery(
-            `SELECT * FROM GuiasCanje WHERE NroGuia = @numero AND Eliminado = 0`,
+            `SELECT * FROM GuiasCanje WHERE RTRIM(NroGuia) = @numero AND Eliminado = 0`,
             [{ name: 'numero', type: sql.NVarChar, value: numero.trim() }]
         );
+        
+        console.log(`🔍 Buscando guía: "${numero.trim()}"`);
+        console.log(`📋 Resultados encontrados: ${result.recordset.length}`);
         
         res.status(200).json({ 
             success: true, 
@@ -716,6 +720,14 @@ exports.insertarCabeceraGuiaCanje = async (req, res) => {
     const { docu, feca, Prov, empresa, ruc, placa, punto, destino } = req.body;
     
     try {
+        // Proporcionar valores por defecto solo si los campos están undefined, null o vacíos
+        const placaValue = (placa && placa.trim() !== '') ? placa.trim() : 'DISPONIBLE';
+        const puntoValue = (punto && punto.trim() !== '') ? punto.trim() : 'DISTRIBUIDORA FARMACOS DEL NORTE S.A.C.';
+        const destinoValue = (destino && destino.trim() !== '') ? destino.trim() : 'DISTRIBUIDORA FARMACOS DEL NORTE S.A.C.';
+        
+        console.log('Datos recibidos:', { docu, feca, Prov, empresa, ruc, placa, punto, destino });
+        console.log('Datos procesados:', { docu, feca, Prov, empresa, ruc, placa: placaValue, punto: puntoValue, destino: destinoValue });
+        
         // Primero, vamos a verificar la estructura de la tabla
         const structureResult = await dbService.executeQuery(
             `SELECT COLUMN_NAME, DATA_TYPE 
@@ -725,18 +737,38 @@ exports.insertarCabeceraGuiaCanje = async (req, res) => {
         );
         console.log('Estructura de la tabla GuiasCanje:', structureResult.recordset);
         
+        // Verificar si la guía ya existe antes de insertar
+        console.log(`🔍 Verificando si la guía ${docu} ya existe...`);
+        const checkResult = await dbService.executeQuery(
+            `SELECT NroGuia FROM GuiasCanje WHERE RTRIM(NroGuia) = @docu AND Eliminado = 0`,
+            [{ name: 'docu', type: sql.NVarChar, value: docu.trim() }]
+        );
+        
+        console.log(`📋 Resultados de verificación: ${checkResult.recordset.length} registros encontrados`);
+        if (checkResult.recordset.length > 0) {
+            console.log(`⚠️ La guía ${docu} ya existe en la base de datos`);
+            console.log(`📋 Guía existente:`, checkResult.recordset[0]);
+            return res.status(400).json({ 
+                success: false, 
+                message: `La guía ${docu} ya existe en la base de datos`,
+                error: 'DUPLICATE_KEY'
+            });
+        }
+        
+        console.log(`✅ La guía ${docu} no existe, procediendo con la inserción...`);
+        
         const result = await dbService.executeQuery(
             `INSERT INTO GuiasCanje (NroGuia, Fecha, Proveedor, EmpTrans, RucTrans, Placa, PtoLlegada, Destinatario, Eliminado)
              VALUES (@docu, @feca, @Prov, @empresa, @ruc, @placa, @punto, @destino, 0)`,
             [
                 { name: 'docu', type: sql.Char, value: docu },
-                { name: 'feca', type: sql.SmallDateTime, value: new Date(feca) },
+                { name: 'feca', type: sql.DateTime, value: new Date(feca) },
                 { name: 'Prov', type: sql.Char, value: Prov },
-                { name: 'empresa', type: sql.VarChar, value: empresa },
-                { name: 'ruc', type: sql.VarChar, value: ruc },
-                { name: 'placa', type: sql.Char, value: placa },
-                { name: 'punto', type: sql.VarChar, value: punto },
-                { name: 'destino', type: sql.VarChar, value: destino }
+                { name: 'empresa', type: sql.NVarChar, value: empresa },
+                { name: 'ruc', type: sql.NVarChar, value: ruc },
+                { name: 'placa', type: sql.Char, value: placaValue },
+                { name: 'punto', type: sql.NVarChar, value: puntoValue },
+                { name: 'destino', type: sql.NVarChar, value: destinoValue }
             ]
         );
         
