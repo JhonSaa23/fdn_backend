@@ -554,6 +554,30 @@ exports.eliminarGuiaCanjeCompleta = async (req, res) => {
         );
         console.log('✅ Guía marcada como eliminada');
         
+        // Paso 5: Actualizar último número de guía en tabla Tablas
+        console.log('🔢 Paso 5: Actualizando último número de guía...');
+        const ultimoNumeroGuia = await dbService.executeQueryInTransaction(transaction,
+            `SELECT TOP 1 Numero FROM DoccabGuia 
+             WHERE Numero LIKE '%T002%' 
+             AND Fecha >= '06/01/2025' 
+             ORDER BY Numero DESC`,
+            []
+        );
+        
+        if (ultimoNumeroGuia.recordset.length > 0) {
+            const nuevoUltimoNumero = ultimoNumeroGuia.recordset[0].Numero;
+            console.log(`📋 Último número de guía encontrado: ${nuevoUltimoNumero}`);
+            
+            await dbService.executeQueryInTransaction(transaction,
+                `UPDATE Tablas SET c_describe = @nuevoNumero 
+                 WHERE n_codtabla = 35 AND n_numero = 2`,
+                [{ name: 'nuevoNumero', type: sql.NVarChar, value: nuevoUltimoNumero }]
+            );
+            console.log(`✅ Último número actualizado a: ${nuevoUltimoNumero}`);
+        } else {
+            console.log('⚠️ No se encontraron guías para actualizar el último número');
+        }
+        
         // Confirmar transacción
         await dbService.commitTransaction(transaction);
         

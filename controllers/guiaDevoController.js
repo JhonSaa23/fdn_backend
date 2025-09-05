@@ -24,24 +24,13 @@ exports.listarProductosADevolver = async (req, res) => {
         
         console.log('✅ Productos encontrados por stored procedure:', result.recordset.length);
         
-        // Debug: Mostrar la estructura de los datos devueltos
-        if (result.recordset.length > 0) {
-            console.log('🔍 Estructura del primer producto:', Object.keys(result.recordset[0]));
-            console.log('📋 Datos del primer producto:', result.recordset[0]);
-            
-            // Verificar específicamente el campo tipodoc
-            const primerProducto = result.recordset[0];
-            console.log('🔍 Campo tipodoc:', primerProducto.tipodoc);
-            console.log('🔍 Campo tipodoc (typeof):', typeof primerProducto.tipodoc);
-            console.log('🔍 Todos los campos disponibles:', Object.keys(primerProducto));
-            
-            // Buscar campos que contengan "tipo" o "doc"
-            const camposRelacionados = Object.keys(primerProducto).filter(key => 
-                key.toLowerCase().includes('tipo') || 
-                key.toLowerCase().includes('doc')
-            );
-            console.log('🔍 Campos relacionados con tipo/doc:', camposRelacionados);
-        }
+        // Asignar índice único a cada registro
+        const productosConIndice = result.recordset.map((producto, index) => ({
+            ...producto,
+            indice: index + 1 // Índice único permanente (1, 2, 3, 4...)
+        }));
+        
+        console.log('📋 Productos con índice asignado:', productosConIndice.length);
         
         if (result.recordset.length === 0) {
             console.log('⚠️ No hay productos disponibles para devolución en este laboratorio');
@@ -52,8 +41,8 @@ exports.listarProductosADevolver = async (req, res) => {
             });
         }
         
-        console.log('✅ Productos cargados:', result.recordset.length, 'productos disponibles para devolución');
-        res.status(200).json({ success: true, data: result.recordset });
+        console.log('✅ Productos cargados:', productosConIndice.length, 'productos disponibles para devolución');
+        res.status(200).json({ success: true, data: productosConIndice });
     } catch (error) {
         console.error('❌ Error en listarProductosADevolver:', error);
         console.error('❌ Stack trace:', error.stack);
