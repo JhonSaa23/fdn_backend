@@ -9,7 +9,10 @@ router.get('/', async (req, res) => {
     const pool = await getConnection();
     
     // Obtener parámetros de filtro
-    const { codigoProducto = '00' } = req.query;
+    const { codigoProducto, laboratorio } = req.query;
+    
+    // Usar laboratorio si está disponible, sino usar codigoProducto, sino usar '00' por defecto
+    const codigoFiltro = laboratorio || codigoProducto || '00';
 
     const query = `
       SELECT 
@@ -37,19 +40,19 @@ router.get('/', async (req, res) => {
   AND ISNULL(s.lote, '') = ISNULL(cf.Lote, '')
   AND CONVERT(date, ISNULL(s.vencimiento, '1900-01-01')) = CONVERT(date, ISNULL(cf.Vencimiento, '1900-01-01'))
   AND cf.Estado = 'ACTIVO'
-      WHERE LEFT(s.codpro, 2) = @codigoProducto
+      WHERE LEFT(s.codpro, 2) = @codigoFiltro
       ORDER BY s.codpro, s.almacen, s.lote
     `;
 
     const result = await pool.request()
-      .input('codigoProducto', codigoProducto)
+      .input('codigoFiltro', codigoFiltro)
       .query(query);
 
     res.json({
       success: true,
       data: result.recordset,
       filtros: {
-        codigoProducto
+        laboratorio: laboratorio || codigoProducto || '00'
       }
     });
 
@@ -67,7 +70,10 @@ router.get('/', async (req, res) => {
 router.get('/export', async (req, res) => {
   try {
     const pool = await getConnection();
-    const { codigoProducto = '00' } = req.query;
+    const { codigoProducto, laboratorio } = req.query;
+    
+    // Usar laboratorio si está disponible, sino usar codigoProducto, sino usar '00' por defecto
+    const codigoFiltro = laboratorio || codigoProducto || '00';
 
     const query = `
       SELECT 
@@ -95,12 +101,12 @@ router.get('/export', async (req, res) => {
         AND ISNULL(s.lote, '') = cf.Lote
         AND CONVERT(date, ISNULL(s.vencimiento, '1900-01-01')) = CONVERT(date, ISNULL(cf.Vencimiento, '1900-01-01'))
         AND cf.Estado = 'ACTIVO'
-      WHERE LEFT(s.codpro, 2) = @codigoProducto
+      WHERE LEFT(s.codpro, 2) = @codigoFiltro
       ORDER BY s.codpro, s.almacen, s.lote
     `;
 
     const result = await pool.request()
-      .input('codigoProducto', codigoProducto)
+      .input('codigoFiltro', codigoFiltro)
       .query(query);
 
     // Crear workbook y worksheet
