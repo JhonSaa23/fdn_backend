@@ -6,10 +6,8 @@ const { executeQuery } = require('../database');
 router.get('/laboratorios', async (req, res) => {
   try {
     const query = `
-      SELECT DISTINCT l.CodLab, l.Descripcion
-      FROM dbo.Laboratorios AS l
-      INNER JOIN dbo.Escalas AS e ON RTRIM(l.CodLab) = LEFT(e.CodPro, 2)
-      ORDER BY l.Descripcion
+      SELECT CodLab, Descripcion
+      FROM dbo.Laboratorios 
     `;
     const result = await executeQuery(query);
     res.json(result.recordset);
