@@ -13,7 +13,7 @@ const ensureString = (value) => {
 // ===== GET: obtener todos los clientes con filtros dinámicos y paginación =====
 router.get('/', async (req, res) => {
   try {
-    const { codlab, cliente, tipificacion, page = 1, limit = 40 } = req.query;
+    const { codlab, cliente, tipificacion, activo, page = 1, limit = 40 } = req.query;
 
     // Calcular offset para paginación
     const pageNum = parseInt(page);
@@ -38,8 +38,15 @@ router.get('/', async (req, res) => {
         v.cliente,
         v.tipificacion,
         v.en_t,
-        v.en_d
+        v.en_d,
+        c.Activo,
+        CASE 
+          WHEN c.Activo = 1 THEN 'Activo'
+          WHEN c.Activo = 0 THEN 'Inactivo'
+          ELSE 'Sin información'
+        END AS EstadoDescripcion
       FROM vw_ClientesTipificacion AS v
+      LEFT JOIN clientes AS c ON v.cliente = c.Documento
       WHERE 1=1
     `;
 
@@ -55,6 +62,10 @@ router.get('/', async (req, res) => {
     if (tipificacion) {
       baseQuery += ' AND v.tipificacion = @tipificacion';
       params.tipificacion = parseFloat(tipificacion);
+    }
+    if (activo !== undefined && activo !== '') {
+      baseQuery += ' AND c.Activo = @activo';
+      params.activo = parseInt(activo);
     }
 
     // Query para obtener el total de registros
@@ -73,10 +84,12 @@ router.get('/', async (req, res) => {
       )
       SELECT COUNT(*) as total
       FROM vw_ClientesTipificacion AS v
+      LEFT JOIN clientes AS c ON v.cliente = c.Documento
       WHERE 1=1
       ${codlab ? ' AND v.codlab = @codlab' : ''}
       ${cliente ? ' AND v.cliente = @cliente' : ''}
       ${tipificacion ? ' AND v.tipificacion = @tipificacion' : ''}
+      ${activo !== undefined && activo !== '' ? ' AND c.Activo = @activo' : ''}
     `;
 
     // Query con paginación
@@ -140,6 +153,89 @@ router.get('/tipificaciones', async (req, res) => {
     console.error('Error al obtener tipificaciones:', error);
     res.status(500).json({
       error: 'Error al obtener las tipificaciones',
+      details: error.message
+    });
+  }
+});
+
+// ===== GET: obtener clientes con información de estado activo =====
+router.get('/con-estado', async (req, res) => {
+  try {
+    const { documento, activo, page = 1, limit = 40 } = req.query;
+
+    // Calcular offset para paginación
+    const pageNum = parseInt(page);
+    const limitNum = parseInt(limit);
+    const offset = (pageNum - 1) * limitNum;
+
+    let baseQuery = `
+      SELECT 
+        Documento,
+        Activo,
+        Codclie,
+        Razon,
+        Direccion,
+        Telefono1,
+        Telefono2,
+        Celular,
+        Email,
+        Vendedor,
+        CASE 
+          WHEN Activo = 1 THEN 'Activo'
+          ELSE 'Inactivo'
+        END AS EstadoDescripcion
+      FROM clientes
+      WHERE 1=1
+    `;
+
+    const params = {};
+    if (documento) {
+      baseQuery += ' AND Documento = @documento';
+      params.documento = ensureString(documento);
+    }
+    if (activo !== undefined && activo !== '') {
+      baseQuery += ' AND Activo = @activo';
+      params.activo = parseInt(activo);
+    }
+
+    // Query para obtener el total de registros
+    const countQuery = `
+      SELECT COUNT(*) as total
+      FROM clientes
+      WHERE 1=1
+      ${documento ? ' AND Documento = @documento' : ''}
+      ${activo !== undefined && activo !== '' ? ' AND Activo = @activo' : ''}
+    `;
+
+    // Query con paginación
+    const dataQuery = baseQuery + 
+      ' ORDER BY Documento' +
+      ` OFFSET ${offset} ROWS FETCH NEXT ${limitNum} ROWS ONLY`;
+
+    // Ejecutar ambas queries
+    const [totalResult, dataResult] = await Promise.all([
+      executeQuery(countQuery, params),
+      executeQuery(dataQuery, params)
+    ]);
+
+    const total = totalResult.recordset[0].total;
+    const totalPages = Math.ceil(total / limitNum);
+    const hasMore = pageNum < totalPages;
+
+    res.json({
+      data: dataResult.recordset,
+      pagination: {
+        currentPage: pageNum,
+        totalPages,
+        limit: limitNum,
+        total,
+        hasMore
+      }
+    });
+  } catch (error) {
+    console.error('Error al obtener clientes con estado:', error);
+    res.status(500).json({
+      error: 'Error al obtener los clientes con estado',
       details: error.message
     });
   }
