@@ -476,7 +476,7 @@ router.post('/registrar', async (req, res) => {
     console.log('📋 Paso 2: Creando cabecera del movimiento...');
     const cabeceraParams = [
       { name: 'Docu', type: sql.Char(20), value: numeroMovimiento },
-      { name: 'fec', type: sql.SmallDateTime, value: new Date(fechaMovimiento) },
+      { name: 'fec', type: sql.SmallDateTime, value: new Date(new Date().getTime() - (new Date().getTimezoneOffset() * 60000)) },
       { name: 'Observa', type: sql.Char(100), value: `Movimiento ${tipoMovimiento} - ${opcionSalida?.c_describe || 'Sin descripción'}` }
     ];
     
@@ -490,9 +490,23 @@ router.post('/registrar', async (req, res) => {
     for (const producto of productos) {
       console.log(`📦 Insertando producto: ${producto.codpro}, cantidad: ${producto.cantidad}`);
       
+      // Calcular stock resultante para salidas
+      let stockResultante = producto.stock;
+      if (producto.movin === 2) { // Salida
+        stockResultante = producto.stock - producto.cantidad;
+        console.log(`📊 Cálculo de stock para SALIDA: ${producto.stock} - ${producto.cantidad} = ${stockResultante}`);
+      } else if (producto.movin === 1) { // Entrada
+        stockResultante = producto.stock + producto.cantidad;
+        console.log(`📊 Cálculo de stock para ENTRADA: ${producto.stock} + ${producto.cantidad} = ${stockResultante}`);
+      }
+      
+      console.log(`⏳ Ejecutando sp_Movimientos_insertar para ${producto.codpro}...`);
+      const fechaLocal = new Date(new Date().getTime() - (new Date().getTimezoneOffset() * 60000));
+      console.log(`📅 Fecha que se envía a sp_Movimientos_insertar:`, fechaLocal);
+      
       const movimientoParams = [
         { name: 'Docu', type: sql.Char(20), value: numeroMovimiento },
-        { name: 'fec', type: sql.SmallDateTime, value: new Date(fechaMovimiento) },
+        { name: 'fec', type: sql.SmallDateTime, value: fechaLocal },
         { name: 'cod', type: sql.Char(10), value: producto.codpro },
         { name: 'lote', type: sql.Char(15), value: producto.lote },
         { name: 'vence', type: sql.SmallDateTime, value: new Date(producto.fechaVencimiento) },
@@ -501,11 +515,10 @@ router.post('/registrar', async (req, res) => {
         { name: 'cantidad', type: sql.Decimal(9,2), value: producto.cantidad },
         { name: 'costo', type: sql.Money, value: producto.pCosto },
         { name: 'venta', type: sql.Money, value: producto.precioReal },
-        { name: 'stock', type: sql.Decimal(9,2), value: producto.stock },
+        { name: 'stock', type: sql.Decimal(9,2), value: stockResultante }, // Stock resultante calculado
         { name: 'alma', type: sql.Int, value: producto.almacenNumero }
       ];
       
-      console.log(`⏳ Ejecutando sp_Movimientos_insertar para ${producto.codpro}...`);
       await dbService.executeProcedureInTransaction(transaction, 'sp_Movimientos_insertar', movimientoParams);
       console.log(`✅ sp_Movimientos_insertar completado para ${producto.codpro}`);
       console.log(`✅ Producto ${producto.codpro} insertado correctamente`);
@@ -517,7 +530,7 @@ router.post('/registrar', async (req, res) => {
       const transaccionParams = [
         { name: 'documento', type: sql.Char(20), value: numeroMovimiento },
         { name: 'tipodoc', type: sql.Int, value: 10 }, // TipoDoc para movimientos internos
-        { name: 'fecha', type: sql.SmallDateTime, value: new Date(fechaMovimiento) },
+        { name: 'fecha', type: sql.SmallDateTime, value: new Date(new Date().getTime() - (new Date().getTimezoneOffset() * 60000)) },
         { name: 'idpro', type: sql.Char(10), value: producto.codpro },
         { name: 'lote', type: sql.Char(15), value: producto.lote },
         { name: 'Almacen', type: sql.Int, value: producto.almacenNumero },
