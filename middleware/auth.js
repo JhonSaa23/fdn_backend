@@ -28,7 +28,7 @@ const authenticateToken = async (req, res, next) => {
       .input('idus', sql.Int, decoded.idus)
       .query(`
         SELECT IDUS, Nombres, TipoUsuario, Activo, Bloqueado
-        FROM UsuariosBot 
+        FROM UsersSystems 
         WHERE IDUS = @idus AND Activo = 1 AND Bloqueado = 0
       `);
 
@@ -94,7 +94,7 @@ const optionalAuth = async (req, res, next) => {
         .input('idus', sql.Int, decoded.idus)
         .query(`
           SELECT IDUS, Nombres, TipoUsuario, Activo, Bloqueado
-          FROM UsuariosBot 
+          FROM UsersSystems 
           WHERE IDUS = @idus AND Activo = 1 AND Bloqueado = 0
         `);
 

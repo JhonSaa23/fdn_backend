@@ -104,9 +104,27 @@ router.post('/validar-documento', async (req, res) => {
 
   } catch (error) {
     console.error('Error validando documento:', error);
-    res.status(500).json({
+    
+    // Determinar el tipo de error y proporcionar mensaje específico
+    let errorMessage = 'Error interno del servidor';
+    let statusCode = 500;
+    
+    if (error.code === 'ESOCKET' || error.code === 'ECONNREFUSED' || error.code === 'ETIMEDOUT') {
+      errorMessage = 'No se puede conectar con la base de datos. Verifique la conectividad de red.';
+      statusCode = 503; // Service Unavailable
+    } else if (error.code === 'ELOGIN') {
+      errorMessage = 'Error de autenticación con la base de datos.';
+    } else if (error.code === 'ENOTFOUND') {
+      errorMessage = 'Servidor de base de datos no encontrado.';
+    }
+    
+    res.status(statusCode).json({
       success: false,
-      message: 'Error interno del servidor'
+      message: errorMessage,
+      error: {
+        code: error.code,
+        details: process.env.NODE_ENV === 'development' ? error.message : undefined
+      }
     });
   }
 });
@@ -381,6 +399,40 @@ router.post('/verificar-codigo', checkFailedAttempts, async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Error interno del servidor'
+    });
+  }
+});
+
+// =====================================================
+// ENDPOINT: Verificar estado de la base de datos
+// =====================================================
+router.get('/db-status', async (req, res) => {
+  try {
+    const pool = await getConnection();
+    const result = await pool.request().query('SELECT 1 as test');
+    
+    res.json({
+      success: true,
+      message: 'Base de datos conectada correctamente',
+      data: {
+        connected: true,
+        timestamp: new Date().toISOString()
+      }
+    });
+  } catch (error) {
+    console.error('Error verificando estado de la base de datos:', error);
+    
+    res.status(503).json({
+      success: false,
+      message: 'Base de datos no disponible',
+      data: {
+        connected: false,
+        error: {
+          code: error.code,
+          message: error.message
+        },
+        timestamp: new Date().toISOString()
+      }
     });
   }
 });
