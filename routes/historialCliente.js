@@ -37,7 +37,7 @@ router.get('/clientes-lista', async (req, res) => {
 });
 
 // Endpoint para consultar historial de cliente
-router.post('/historial-cliente', async (req, res) => {
+router.post('/', async (req, res) => {
   try {
     const { codigoCliente, fecha, mes, año } = req.body;
 
