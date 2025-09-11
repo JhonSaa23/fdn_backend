@@ -31,6 +31,7 @@ const usersBotRoutes = require('./routes/usersBot');
 const authRoutes = require('./routes/auth');
 const vistasRoutes = require('./routes/vistas');
 const historialClienteRoutes = require('./routes/historialCliente');
+const { authenticateToken, requireAdmin, optionalAuth } = require('./middleware/auth');
 
 const app = express();
 const server = createServer(app);
@@ -85,40 +86,42 @@ if (!fs.existsSync(uploadDir)) {
   fs.mkdirSync(uploadDir, { recursive: true });
 }
 
-// Rutas
-app.use('/api/medifarma', medifarmaRoutes);
-app.use('/api/bcp', bcpRoutes);
-app.use('/api/export', exportRoutes);
-app.use('/api/movimientos', movimientosRoutes);
-app.use('/api/reportes', reportesRoutes);
-app.use('/api/promociones', promocionesRoutes);
-app.use('/api/clientes', clientesRoutes);
-app.use('/api/conteos', conteosRoutes);
-app.use('/api/multi-accion', multiAccionRoutes);
-app.use('/api/escalas', escalasRoutes);
-app.use('/api/kardex', kardexRoutes);
-app.use('/api/guias', guiasRoutes);
-app.use('/api/bonificaciones', bonificacionesRoutes);
-app.use('/api/pedidos', pedidosRoutes);
-app.use('/api/saldos', saldosRoutes);
-app.use('/api/productos', productosRoutes);
-app.use('/api', canjeRoutes);
-app.use('/api/guias-venta', guiasVentaRoutes);
-app.use('/api/vendedores', vendedoresRoutes);
+// Rutas de autenticación (públicas) - DEBEN IR PRIMERO
+app.use('/api/auth', authRoutes);
 
-// Rutas del bot
+// Rutas del bot (públicas)
 app.use('/api/bot', botRoutes);
 
-// Rutas de usuarios del bot
+// Rutas de usuarios del bot (públicas)
 app.use('/api/usersbot', usersBotRoutes);
 
-// Rutas del juego
+// Rutas del juego (públicas)
 app.use('/api/juego', juegoRoutes);
 
-// Rutas de autenticación
-app.use('/api/auth', authRoutes);
-app.use('/api', vistasRoutes);
-app.use('/api', historialClienteRoutes);
+// Rutas protegidas (requieren autenticación)
+app.use('/api/medifarma', authenticateToken, medifarmaRoutes);
+app.use('/api/bcp', authenticateToken, bcpRoutes);
+app.use('/api/export', authenticateToken, exportRoutes);
+app.use('/api/movimientos', authenticateToken, movimientosRoutes);
+app.use('/api/reportes', authenticateToken, reportesRoutes);
+app.use('/api/promociones', authenticateToken, promocionesRoutes);
+app.use('/api/clientes', authenticateToken, clientesRoutes);
+app.use('/api/conteos', authenticateToken, conteosRoutes);
+app.use('/api/multi-accion', authenticateToken, multiAccionRoutes);
+app.use('/api/escalas', authenticateToken, escalasRoutes);
+app.use('/api/kardex', authenticateToken, kardexRoutes);
+app.use('/api/guias', authenticateToken, guiasRoutes);
+app.use('/api/bonificaciones', authenticateToken, bonificacionesRoutes);
+app.use('/api/pedidos', authenticateToken, pedidosRoutes);
+app.use('/api/saldos', authenticateToken, saldosRoutes);
+app.use('/api/productos', authenticateToken, productosRoutes);
+app.use('/api/guias-venta', authenticateToken, guiasVentaRoutes);
+app.use('/api/vendedores', authenticateToken, vendedoresRoutes);
+app.use('/api', authenticateToken, canjeRoutes);
+
+// Rutas protegidas con autenticación de administrador
+app.use('/api/vistas', authenticateToken, requireAdmin, vistasRoutes);
+app.use('/api/historial-cliente', authenticateToken, historialClienteRoutes);
 
 // Ruta de prueba
 app.get('/', (req, res) => {

@@ -1,5 +1,6 @@
 const express = require('express');
 const sql = require('mssql');
+const jwt = require('jsonwebtoken');
 const { getConnection } = require('../database');
 const whatsappController = require('../controllers/whatsappController');
 const { 
@@ -9,6 +10,7 @@ const {
   generateSecureCode,
   SECURITY_CONFIG 
 } = require('../middleware/security');
+const { JWT_SECRET } = require('../middleware/auth');
 const router = express.Router();
 
 // =====================================================
@@ -338,10 +340,22 @@ router.post('/verificar-codigo', checkFailedAttempts, async (req, res) => {
 
     const usuario = usuarioResult.recordset[0];
 
+    // Generar token JWT
+    const tokenPayload = {
+      idus: usuario.IDUS,
+      tipoUsuario: usuario.TipoUsuario,
+      nombres: usuario.Nombres
+    };
+
+    const token = jwt.sign(tokenPayload, JWT_SECRET, {
+      expiresIn: mantenerSesion ? '7d' : '24h' // 7 días si mantiene sesión, 24 horas si no
+    });
+
     res.json({
       success: true,
       message: 'Código verificado exitosamente',
       data: {
+        token: token,
         usuario: {
           idus: usuario.IDUS,
           codigoInterno: usuario.CodigoInterno,
