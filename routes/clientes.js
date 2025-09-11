@@ -126,13 +126,27 @@ router.get('/', async (req, res) => {
   }
 });
 
-// Endpoint para obtener la lista de laboratorios
-router.get('/laboratorios', (req, res) => {
-  const laboratorios = [
-    { codlab: '01', descripcion: 'Laboratorio 01' },
-    { codlab: '49', descripcion: 'Laboratorio 49' }
-  ];
-  res.json(laboratorios);
+// Endpoint para obtener la lista de laboratorios desde la base de datos
+router.get('/laboratorios', async (req, res) => {
+  try {
+    const query = `
+      SELECT DISTINCT
+        RTRIM(t.codlab) as codlab,
+        RTRIM(l.Descripcion) as descripcion
+      FROM t_Tipifica_laboratorio t
+      INNER JOIN Laboratorios l ON RTRIM(t.codlab) = RTRIM(l.codlab)
+      ORDER BY RTRIM(t.codlab)
+    `;
+    
+    const result = await executeQuery(query);
+    res.json(result.recordset);
+  } catch (error) {
+    console.error('Error al obtener laboratorios:', error);
+    res.status(500).json({
+      error: 'Error al obtener los laboratorios',
+      details: error.message
+    });
+  }
 });
 
 // Endpoint para obtener las tipificaciones desde la base de datos

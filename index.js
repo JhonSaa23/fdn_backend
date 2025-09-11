@@ -28,6 +28,9 @@ const botRoutes = require('./routes/botRoutes');
 const juegoRoutes = require('./routes/juegoRoutes');
 const vendedoresRoutes = require('./routes/vendedores');
 const usersBotRoutes = require('./routes/usersBot');
+const authRoutes = require('./routes/auth');
+const vistasRoutes = require('./routes/vistas');
+const historialClienteRoutes = require('./routes/historialCliente');
 
 const app = express();
 const server = createServer(app);
@@ -111,6 +114,11 @@ app.use('/api/usersbot', usersBotRoutes);
 
 // Rutas del juego
 app.use('/api/juego', juegoRoutes);
+
+// Rutas de autenticación
+app.use('/api/auth', authRoutes);
+app.use('/api', vistasRoutes);
+app.use('/api', historialClienteRoutes);
 
 // Ruta de prueba
 app.get('/', (req, res) => {

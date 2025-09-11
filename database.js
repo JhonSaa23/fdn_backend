@@ -32,7 +32,17 @@ const getConnection = async () => {
             // Manejar desconexiones
             pool.on('error', async err => {
                 console.error('Error en la conexión de la base de datos:', err);
+                console.log('🔄 Intentando reconectar en 5 segundos...');
                 await closePool();
+                // Reconectar automáticamente después de 5 segundos
+                setTimeout(async () => {
+                    try {
+                        await getConnection();
+                        console.log('✅ Reconexión exitosa');
+                    } catch (reconnectError) {
+                        console.error('❌ Error en reconexión:', reconnectError);
+                    }
+                }, 5000);
             });
         }
         return pool;
