@@ -119,8 +119,8 @@ app.use('/api/guias-venta', authenticateToken, guiasVentaRoutes);
 app.use('/api/vendedores', authenticateToken, vendedoresRoutes);
 app.use('/api', authenticateToken, canjeRoutes);
 
-// Rutas protegidas con autenticación de administrador
-app.use('/api/vistas', authenticateToken, requireAdmin, vistasRoutes);
+// Rutas de vistas - solo algunas requieren admin
+app.use('/api/vistas', authenticateToken, vistasRoutes);
 app.use('/api/historial-cliente', authenticateToken, historialClienteRoutes);
 
 // Ruta de prueba
@@ -136,6 +136,7 @@ app.get('/', (req, res) => {
     socketio: 'Disponible en /socket.io/'
   });
 });
+
 
 // Ruta de prueba para socket.io
 app.get('/socket-test', (req, res) => {

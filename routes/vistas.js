@@ -1,5 +1,6 @@
 const express = require('express');
 const { getConnection } = require('../database');
+const { requireAdmin } = require('../middleware/auth');
 const sql = require('mssql');
 
 const router = express.Router();
@@ -8,8 +9,9 @@ const router = express.Router();
 // ENDPOINTS DE GESTIÓN DE VISTAS
 // =====================================================
 
-// Obtener todas las vistas del sistema
-router.get('/vistas', async (req, res) => {
+
+// Obtener todas las vistas del sistema (solo administradores)
+router.get('/', requireAdmin, async (req, res) => {
   try {
     const pool = await getConnection();
     
@@ -29,7 +31,7 @@ router.get('/vistas', async (req, res) => {
 });
 
 // Obtener vistas permitidas para un usuario específico
-router.get('/vistas/usuario/:idus', async (req, res) => {
+router.get('/usuario/:idus', async (req, res) => {
   try {
     const { idus } = req.params;
     const pool = await getConnection();
@@ -51,8 +53,8 @@ router.get('/vistas/usuario/:idus', async (req, res) => {
   }
 });
 
-// Obtener vistas disponibles para asignar a un usuario
-router.get('/vistas/disponibles/:idus', async (req, res) => {
+// Obtener vistas disponibles para asignar a un usuario (solo administradores)
+router.get('/disponibles/:idus', requireAdmin, async (req, res) => {
   try {
     const { idus } = req.params;
     const pool = await getConnection();
@@ -74,8 +76,8 @@ router.get('/vistas/disponibles/:idus', async (req, res) => {
   }
 });
 
-// Asignar vista a usuario
-router.post('/vistas/asignar', async (req, res) => {
+// Asignar vista a usuario (solo administradores)
+router.post('/asignar', requireAdmin, async (req, res) => {
   try {
     const { idus, idvista, asignadoPor } = req.body;
     
@@ -107,8 +109,8 @@ router.post('/vistas/asignar', async (req, res) => {
   }
 });
 
-// Remover vista de usuario
-router.delete('/vistas/remover', async (req, res) => {
+// Remover vista de usuario (solo administradores)
+router.delete('/remover', requireAdmin, async (req, res) => {
   try {
     const { idus, idvista } = req.body;
     
@@ -139,8 +141,8 @@ router.delete('/vistas/remover', async (req, res) => {
   }
 });
 
-// Actualizar permisos de usuario (múltiples vistas)
-router.put('/vistas/usuario/:idus', async (req, res) => {
+// Actualizar permisos de usuario (múltiples vistas) (solo administradores)
+router.put('/usuario/:idus', requireAdmin, async (req, res) => {
   try {
     const { idus } = req.params;
     const { vistas } = req.body; // Array de IDs de vistas
