@@ -64,7 +64,7 @@ router.get('/clientes', async (req, res) => {
       FROM clientes c
       LEFT JOIN ClientesInfocorp ci ON c.Documento = ci.Documento
       ${whereClause}
-      ORDER BY c.Razon
+      ORDER BY c.fecha DESC, c.Razon
       OFFSET ${offset} ROWS
       FETCH NEXT ${limit} ROWS ONLY
     `;
