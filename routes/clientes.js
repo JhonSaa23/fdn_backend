@@ -537,15 +537,21 @@ router.post('/import', upload.single('file'), async (req, res) => {
     if (!codlab) {
       return res.status(400).json({
         error: 'Laboratorio requerido',
-        details: 'Debe seleccionar un laboratorio (01 o 49)'
+        details: 'Debe seleccionar un laboratorio'
       });
     }
 
     const cod = ensureString(codlab);
-    if (cod !== '01' && cod !== '49') {
+    // Validar que el laboratorio existe en la base de datos
+    const pool = await getConnection();
+    const labCheck = await pool.request()
+      .input('codlab', sql.Char(4), cod)
+      .query('SELECT COUNT(*) as count FROM Laboratorios WHERE CodLab = @codlab');
+    
+    if (labCheck.recordset[0].count === 0) {
       return res.status(400).json({
         error: 'Laboratorio inválido',
-        details: 'El laboratorio debe ser 01 o 49'
+        details: 'El laboratorio seleccionado no existe en la base de datos'
       });
     }
 
