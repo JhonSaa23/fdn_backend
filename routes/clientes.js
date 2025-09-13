@@ -835,7 +835,10 @@ router.get('/laboratorios-todos', async (req, res) => {
     
     const result = await pool.request().query(query);
 
-    res.json(result.recordset);
+    res.json({
+      success: true,
+      data: result.recordset
+    });
 
   } catch (error) {
     console.error('Error obteniendo todos los laboratorios:', error);
