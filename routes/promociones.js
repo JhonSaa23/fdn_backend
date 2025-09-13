@@ -37,6 +37,8 @@ router.get('/', async (req, res) => {
         v.tipificacion,
         v.codpro,
         p.Nombre AS nombreProducto,
+        RTRIM(p.CodLab) AS codLab,
+        RTRIM(p.Codlab1) AS codLab1,
         v.[desde],
         v.porcentaje,
         v.en_t,
@@ -53,7 +55,9 @@ router.get('/', async (req, res) => {
       params.tipificacion = ensureString(tipificacion);
     }
     if (codpro) {
-      query += ' AND v.codpro = @codpro';
+      query += ` AND (v.codpro = @codpro 
+                     OR RTRIM(p.CodLab) = @codpro 
+                     OR RTRIM(p.Codlab1) = @codpro)`;
       params.codpro = ensureString(codpro);
     }
     if (desde) {
@@ -158,7 +162,8 @@ router.get('/productos', async (req, res) => {
     const query = `
       SELECT
         RTRIM(CodPro) as codpro,
-        RTRIM(Nombre) as nombre
+        RTRIM(Nombre) as nombre,
+        RTRIM(CodLab) as codLab
       FROM Productos WITH(NOLOCK)
       ORDER BY CodPro
     `;

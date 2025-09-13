@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { executeQuery, sql } = require('../database');
+const { executeQuery, sql, getConnection } = require('../database');
 const multer = require('multer');
 const XLSX = require('xlsx');
 const path = require('path');
@@ -40,6 +40,7 @@ router.get('/', async (req, res) => {
         v.en_t,
         v.en_d,
         c.Activo,
+        c.Razon as razon,
         CASE 
           WHEN c.Activo = 1 THEN 'Activo'
           WHEN c.Activo = 0 THEN 'Inactivo'
@@ -126,28 +127,6 @@ router.get('/', async (req, res) => {
   }
 });
 
-// Endpoint para obtener la lista de laboratorios desde la base de datos
-router.get('/laboratorios', async (req, res) => {
-  try {
-    const query = `
-      SELECT DISTINCT
-        RTRIM(t.codlab) as codlab,
-        RTRIM(l.Descripcion) as descripcion
-      FROM t_Tipifica_laboratorio t
-      INNER JOIN Laboratorios l ON RTRIM(t.codlab) = RTRIM(l.codlab)
-      ORDER BY RTRIM(t.codlab)
-    `;
-    
-    const result = await executeQuery(query);
-    res.json(result.recordset);
-  } catch (error) {
-    console.error('Error al obtener laboratorios:', error);
-    res.status(500).json({
-      error: 'Error al obtener los laboratorios',
-      details: error.message
-    });
-  }
-});
 
 // Endpoint para obtener las tipificaciones desde la base de datos
 router.get('/tipificaciones', async (req, res) => {
@@ -167,6 +146,89 @@ router.get('/tipificaciones', async (req, res) => {
     console.error('Error al obtener tipificaciones:', error);
     res.status(500).json({
       error: 'Error al obtener las tipificaciones',
+      details: error.message
+    });
+  }
+});
+
+// Endpoint para agregar nueva tipificación
+router.post('/tipificaciones', async (req, res) => {
+  try {
+    const { tipificacion, codlab, descripcion } = req.body;
+
+    // Validar datos requeridos
+    if (!tipificacion || !codlab || !descripcion) {
+      return res.status(400).json({
+        success: false,
+        message: 'Todos los campos son requeridos: tipificacion, codlab, descripcion'
+      });
+    }
+
+    const pool = await getConnection();
+
+    // Verificar si la tipificación ya existe para este laboratorio
+    const checkQuery = `
+      SELECT COUNT(*) as count 
+      FROM t_Tipifica_laboratorio 
+      WHERE tipificacion = @tipificacion AND codlab = @codlab
+    `;
+    
+    const checkResult = await pool.request()
+      .input('tipificacion', sql.Int, parseInt(tipificacion))
+      .input('codlab', sql.Char(4), codlab)
+      .query(checkQuery);
+
+    if (checkResult.recordset[0].count > 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Esta tipificación ya existe para este laboratorio'
+      });
+    }
+
+    // Insertar en t_Tipifica_laboratorio con tipificación específica
+    const insertTQuery = `
+      INSERT INTO t_Tipifica_laboratorio (tipificacion, codlab, descripcion)
+      VALUES (@tipificacion, @codlab, @descripcion)
+    `;
+
+    await pool.request()
+      .input('tipificacion', sql.Int, parseInt(tipificacion))
+      .input('codlab', sql.Char(4), codlab)
+      .input('descripcion', sql.NVarChar(40), descripcion)
+      .query(insertTQuery);
+
+    // Insertar en Tipifica_laboratorio (usando Numero en lugar de tipificacion)
+    const insertQuery = `
+      INSERT INTO Tipifica_laboratorio (codlab, Numero, Descripcion)
+      VALUES (@codlab, @numero, @descripcion)
+    `;
+
+    try {
+      await pool.request()
+        .input('codlab', sql.Char(4), codlab)
+        .input('numero', sql.Int, parseInt(tipificacion))
+        .input('descripcion', sql.Char(40), descripcion)
+        .query(insertQuery);
+    } catch (insertError) {
+      // Si falla la inserción en Tipifica_laboratorio, continuar
+      console.warn('No se pudo insertar en Tipifica_laboratorio:', insertError.message);
+    }
+
+    res.json({
+      success: true,
+      message: 'Tipificación agregada exitosamente',
+      data: {
+        tipificacion: parseInt(tipificacion),
+        codlab,
+        descripcion
+      }
+    });
+
+  } catch (error) {
+    console.error('Error al agregar tipificación:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Error al agregar la tipificación',
       details: error.message
     });
   }
@@ -728,6 +790,187 @@ router.delete('/masa', async (req, res) => {
     res.status(500).json({
       error: 'Error al eliminar clientes en masa',
       details: error.message
+    });
+  }
+});
+
+// Endpoint para obtener laboratorios (solo los que tienen tipificaciones)
+router.get('/laboratorios', async (req, res) => {
+  try {
+    const pool = await getConnection();
+
+    const query = `
+      SELECT DISTINCT
+        RTRIM(t.codlab) as codlab,
+        RTRIM(l.Descripcion) as descripcion
+      FROM t_Tipifica_laboratorio t
+      INNER JOIN Laboratorios l ON RTRIM(t.codlab) = RTRIM(l.codlab)
+      ORDER BY RTRIM(t.codlab)
+    `;
+    
+    const result = await pool.request().query(query);
+
+    res.json(result.recordset);
+
+  } catch (error) {
+    console.error('Error obteniendo laboratorios:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error interno del servidor',
+      error: error.message
+    });
+  }
+});
+
+// Endpoint para obtener TODOS los laboratorios (para el modal de tipificaciones)
+router.get('/laboratorios-todos', async (req, res) => {
+  try {
+    const pool = await getConnection();
+
+    const query = `
+      SELECT CodLab as codlab, Descripcion as descripcion 
+      FROM Laboratorios 
+      ORDER BY CodLab
+    `;
+    
+    const result = await pool.request().query(query);
+
+    res.json(result.recordset);
+
+  } catch (error) {
+    console.error('Error obteniendo todos los laboratorios:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error interno del servidor',
+      error: error.message
+    });
+  }
+});
+
+// Endpoint para obtener el siguiente número de tipificación
+router.get('/siguiente-tipificacion/:codlab', async (req, res) => {
+  try {
+    const { codlab } = req.params;
+
+    if (!codlab) {
+      return res.status(400).json({
+        success: false,
+        message: 'Código de laboratorio requerido'
+      });
+    }
+
+    const pool = await getConnection();
+
+    // Obtener el máximo número de tipificación para este laboratorio
+    const maxQuery = `
+      SELECT ISNULL(MAX(tipificacion), 0) as maxTipificacion
+      FROM t_Tipifica_laboratorio 
+      WHERE codlab = @codlab
+    `;
+    
+    const result = await pool.request()
+      .input('codlab', sql.Char(4), codlab)
+      .query(maxQuery);
+
+    const siguienteNumero = result.recordset[0].maxTipificacion + 1;
+
+    res.json({
+      success: true,
+      siguienteNumero: siguienteNumero
+    });
+
+  } catch (error) {
+    console.error('Error obteniendo siguiente tipificación:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error interno del servidor',
+      error: error.message
+    });
+  }
+});
+
+// Endpoint para obtener todas las tipificaciones existentes
+router.get('/tipificaciones-existentes', async (req, res) => {
+  try {
+    const pool = await getConnection();
+
+    const query = `
+      SELECT 
+        t.tipificacion,
+        t.codlab,
+        t.descripcion,
+        l.Descripcion as nombreLaboratorio
+      FROM t_Tipifica_laboratorio t
+      INNER JOIN Laboratorios l ON RTRIM(t.codlab) = RTRIM(l.codlab)
+      ORDER BY t.codlab, t.tipificacion
+    `;
+    
+    const result = await pool.request().query(query);
+
+    res.json(result.recordset);
+
+  } catch (error) {
+    console.error('Error obteniendo tipificaciones existentes:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error interno del servidor',
+      error: error.message
+    });
+  }
+});
+
+// Endpoint para actualizar una tipificación existente (solo descripción por ahora)
+router.put('/tipificaciones/:tipificacion/:codlab', async (req, res) => {
+  try {
+    const { tipificacion, codlab } = req.params;
+    const { descripcion } = req.body;
+
+    if (!tipificacion || !codlab || !descripcion) {
+      return res.status(400).json({
+        success: false,
+        message: 'Tipificación, código de laboratorio y descripción son requeridos'
+      });
+    }
+
+    const pool = await getConnection();
+
+    // Actualizar solo la descripción en t_Tipifica_laboratorio
+    const updateTQuery = `
+      UPDATE t_Tipifica_laboratorio 
+      SET descripcion = @descripcion
+      WHERE tipificacion = @tipificacion AND codlab = @codlab
+    `;
+
+    // Actualizar solo la descripción en Tipifica_laboratorio
+    const updateQuery = `
+      UPDATE Tipifica_laboratorio 
+      SET Descripcion = @descripcion
+      WHERE Numero = @tipificacion AND codlab = @codlab
+    `;
+
+    await pool.request()
+      .input('tipificacion', sql.Int, parseInt(tipificacion))
+      .input('codlab', sql.Char(4), codlab)
+      .input('descripcion', sql.NVarChar(40), descripcion)
+      .query(updateTQuery);
+
+    await pool.request()
+      .input('tipificacion', sql.Int, parseInt(tipificacion))
+      .input('codlab', sql.Char(4), codlab)
+      .input('descripcion', sql.Char(40), descripcion)
+      .query(updateQuery);
+
+    res.json({
+      success: true,
+      message: 'Tipificación actualizada correctamente'
+    });
+
+  } catch (error) {
+    console.error('Error actualizando tipificación:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error interno del servidor',
+      error: error.message
     });
   }
 });
