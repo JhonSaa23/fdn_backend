@@ -31,6 +31,7 @@ const usersBotRoutes = require('./routes/usersBot');
 const authRoutes = require('./routes/auth');
 const vistasRoutes = require('./routes/vistas');
 const historialClienteRoutes = require('./routes/historialCliente');
+const infocorpRoutes = require('./routes/infocorp');
 const { authenticateToken, requireAdmin, optionalAuth } = require('./middleware/auth');
 
 const app = express();
@@ -89,14 +90,15 @@ if (!fs.existsSync(uploadDir)) {
 // Rutas de autenticación (públicas) - DEBEN IR PRIMERO
 app.use('/api/auth', authRoutes);
 
-// Rutas del bot (públicas)
-app.use('/api/bot', botRoutes);
+// Rutas del bot (protegidas)
+app.use('/api/bot', authenticateToken, botRoutes);
 
-// Rutas de usuarios del bot (públicas)
-app.use('/api/usersbot', usersBotRoutes);
+// Rutas de usuarios del bot (protegidas)
+app.use('/api/usersbot', authenticateToken, usersBotRoutes);
 
 // Rutas del juego (públicas)
 app.use('/api/juego', juegoRoutes);
+
 
 // Rutas protegidas (requieren autenticación)
 app.use('/api/medifarma', authenticateToken, medifarmaRoutes);
@@ -122,6 +124,9 @@ app.use('/api', authenticateToken, canjeRoutes);
 // Rutas de vistas - solo algunas requieren admin
 app.use('/api/vistas', authenticateToken, vistasRoutes);
 app.use('/api/historial-cliente', authenticateToken, historialClienteRoutes);
+
+// Ruta protegida para Infocorp
+app.use('/api/infocorp', authenticateToken, infocorpRoutes);
 
 // Ruta de prueba
 app.get('/', (req, res) => {
