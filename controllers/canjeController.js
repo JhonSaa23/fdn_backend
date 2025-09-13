@@ -741,7 +741,7 @@ exports.insertarCabeceraGuiaCanje = async (req, res) => {
         console.log(`🔍 Verificando si la guía ${docu} ya existe...`);
         const checkResult = await dbService.executeQuery(
             `SELECT NroGuia FROM GuiasCanje WHERE RTRIM(NroGuia) = @docu AND Eliminado = 0`,
-            [{ name: 'docu', type: sql.NVarChar, value: docu.trim() }]
+            [{ name: 'docu', type: sql.Char, value: docu.trim() }]
         );
         
         console.log(`📋 Resultados de verificación: ${checkResult.recordset.length} registros encontrados`);
