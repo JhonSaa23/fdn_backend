@@ -90,6 +90,17 @@ if (!fs.existsSync(uploadDir)) {
 // Rutas de autenticación (públicas) - DEBEN IR PRIMERO
 app.use('/api/auth', authRoutes);
 
+// Ruta pública para el bot (sin autenticación)
+app.get('/api/bot/users/active', async (req, res) => {
+  try {
+    const usersBotController = require('./controllers/usersBotController.js');
+    await usersBotController.getActiveUsers(req, res);
+  } catch (error) {
+    console.error('Error en endpoint público del bot:', error);
+    res.status(500).json({ success: false, message: 'Error interno del servidor' });
+  }
+});
+
 // Rutas del bot (protegidas)
 app.use('/api/bot', authenticateToken, botRoutes);
 
