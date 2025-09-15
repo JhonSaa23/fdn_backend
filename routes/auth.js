@@ -362,7 +362,8 @@ router.post('/verificar-codigo', checkFailedAttempts, async (req, res) => {
     const tokenPayload = {
       idus: usuario.IDUS,
       tipoUsuario: usuario.TipoUsuario,
-      nombres: usuario.Nombres
+      nombres: usuario.Nombres,
+      CodigoInterno: usuario.CodigoInterno
     };
 
     const token = jwt.sign(tokenPayload, JWT_SECRET, {

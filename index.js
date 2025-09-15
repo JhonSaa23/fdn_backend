@@ -32,6 +32,7 @@ const authRoutes = require('./routes/auth');
 const vistasRoutes = require('./routes/vistas');
 const historialClienteRoutes = require('./routes/historialCliente');
 const infocorpRoutes = require('./routes/infocorp');
+const pedidoAppRoutes = require('./routes/pedido_app');
 const { authenticateToken, requireAdmin, optionalAuth } = require('./middleware/auth');
 
 const app = express();
@@ -138,6 +139,9 @@ app.use('/api/historial-cliente', authenticateToken, historialClienteRoutes);
 
 // Ruta protegida para Infocorp
 app.use('/api/infocorp', authenticateToken, infocorpRoutes);
+
+// Ruta para la app móvil de pedidos
+app.use('/api/pedido_app', authenticateToken, pedidoAppRoutes);
 
 // Ruta de prueba
 app.get('/', (req, res) => {
