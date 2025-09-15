@@ -26,6 +26,9 @@ router.get('/clientes', async (req, res) => {
     const pool = await getConnection();
     const { q: query, limit = 20 } = req.query;
     
+    // Permitir límites más altos para carga completa
+    const maxLimit = Math.min(parseInt(limit) || 20, 1000);
+    
     // Obtener el CodigoInterno del usuario logueado desde el token
     const authHeader = req.headers.authorization;
     console.log('🔐 [CLIENTES] Auth header recibido:', authHeader ? 'Presente' : 'Ausente');
@@ -85,9 +88,11 @@ router.get('/clientes', async (req, res) => {
     `;
       
       const result = await pool.request()
-        .input('limit', parseInt(limit))
+        .input('limit', maxLimit)
         .input('codigoInterno', codigoInterno)
         .query(defaultQuery);
+      
+      console.log(`📋 [CLIENTES] Carga inicial: ${result.recordset.length} clientes para vendedor: ${codigoInterno}`);
       
       return res.json({
         success: true,
@@ -98,7 +103,7 @@ router.get('/clientes', async (req, res) => {
     }
     
     const searchTerm = query.trim().toLowerCase();
-    const cacheKey = `clientes_${searchTerm}_${limit}_${codigoInterno}`;
+    const cacheKey = `clientes_${searchTerm}_${maxLimit}_${codigoInterno}`;
     
     // Verificar cache primero
     if (clientCache.has(cacheKey)) {
@@ -114,7 +119,7 @@ router.get('/clientes', async (req, res) => {
       }
     }
     
-    console.log(`🔍 Búsqueda de clientes: "${searchTerm}" (limit: ${limit}, vendedor: ${codigoInterno})`);
+    console.log(`🔍 [CLIENTES] Búsqueda de clientes: "${searchTerm}" (limit: ${maxLimit}, vendedor: ${codigoInterno})`);
     
     // Query optimizada con índices y filtro por vendedor
     const searchQuery = `
@@ -146,7 +151,7 @@ router.get('/clientes', async (req, res) => {
     `;
     
     const result = await pool.request()
-      .input('limit', parseInt(limit))
+      .input('limit', maxLimit)
       .input('searchTerm', `%${searchTerm}%`)
       .input('exactMatch', searchTerm)
       .input('startsWith', `${searchTerm}%`)
@@ -162,7 +167,7 @@ router.get('/clientes', async (req, res) => {
       timestamp: Date.now()
     });
     
-    console.log(`✅ Encontrados ${clientes.length} clientes para: "${searchTerm}" (vendedor: ${codigoInterno})`);
+    console.log(`✅ [CLIENTES] Encontrados ${clientes.length} clientes para: "${searchTerm}" (vendedor: ${codigoInterno})`);
     
     res.json({
       success: true,
@@ -170,7 +175,8 @@ router.get('/clientes', async (req, res) => {
       total: clientes.length,
       cached: false,
       searchTerm: searchTerm,
-      vendedor: codigoInterno
+      vendedor: codigoInterno,
+      limit: maxLimit
     });
 
   } catch (error) {
