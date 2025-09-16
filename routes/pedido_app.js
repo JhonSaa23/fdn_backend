@@ -1,11 +1,32 @@
 const express = require('express');
 const router = express.Router();
 const jwt = require('jsonwebtoken');
+const sql = require('mssql');
 const { getConnection } = require('../database');
 
 // Cache simple en memoria para optimizar búsquedas repetidas
 const clientCache = new Map();
+const escalasCache = new Map();
+const tipificacionCache = new Map();
+const descuentoCache = new Map();
 const CACHE_EXPIRY = 5 * 60 * 1000; // 5 minutos
+
+// Función helper para cache con TTL
+function getFromCache(cache, key, ttl = 300000) { // 5 minutos por defecto
+  const item = cache.get(key);
+  if (item && Date.now() - item.timestamp < ttl) {
+    return item.data;
+  }
+  cache.delete(key);
+  return null;
+}
+
+function setCache(cache, key, data, ttl = 300000) {
+  cache.set(key, {
+    data: data,
+    timestamp: Date.now()
+  });
+}
 
 // Función para limpiar cache expirado
 const cleanExpiredCache = () => {
@@ -26,8 +47,8 @@ router.get('/clientes', async (req, res) => {
     const pool = await getConnection();
     const { q: query, limit = 20 } = req.query;
     
-    // Permitir límites más altos para carga completa
-    const maxLimit = Math.min(parseInt(limit) || 20, 1000);
+    // Permitir límites más altos para carga completa - SIN LÍMITE MÁXIMO
+    const maxLimit = parseInt(limit) || 20; // Sin límite máximo para traer TODOS los datos
     
     // Obtener el CodigoInterno del usuario logueado desde el token
     const authHeader = req.headers.authorization;
@@ -92,7 +113,7 @@ router.get('/clientes', async (req, res) => {
         .input('codigoInterno', codigoInterno)
         .query(defaultQuery);
       
-      console.log(`📋 [CLIENTES] Carga inicial: ${result.recordset.length} clientes para vendedor: ${codigoInterno}`);
+      console.log(`📋 [CLIENTES] Carga inicial: ${result.recordset.length} clientes para vendedor: ${codigoInterno} (SIN LÍMITE)`);
       
       return res.json({
         success: true,
@@ -119,7 +140,7 @@ router.get('/clientes', async (req, res) => {
       }
     }
     
-    console.log(`🔍 [CLIENTES] Búsqueda de clientes: "${searchTerm}" (limit: ${maxLimit}, vendedor: ${codigoInterno})`);
+    console.log(`🔍 [CLIENTES] Búsqueda de clientes: "${searchTerm}" (SIN LÍMITE - TODOS, vendedor: ${codigoInterno})`);
     
     // Query optimizada con índices y filtro por vendedor
     const searchQuery = `
@@ -167,7 +188,7 @@ router.get('/clientes', async (req, res) => {
       timestamp: Date.now()
     });
     
-    console.log(`✅ [CLIENTES] Encontrados ${clientes.length} clientes para: "${searchTerm}" (vendedor: ${codigoInterno})`);
+    console.log(`✅ [CLIENTES] Encontrados ${clientes.length} clientes para: "${searchTerm}" (vendedor: ${codigoInterno}) (SIN LÍMITE)`);
     
     res.json({
       success: true,
@@ -421,6 +442,440 @@ router.get('/tablas-listar/:codigoTabla', async (req, res) => {
 });
 
 // =====================================================
+// CONFIGURACIÓN GENERAL (IGV, etc.)
+// =====================================================
+
+/**
+ * GET /api/pedido_app/configuracion
+ * Obtiene la configuración general del sistema (IGV, etc.)
+ */
+router.get('/configuracion', async (req, res) => {
+  try {
+    const pool = await getConnection();
+    
+    console.log('🔧 [CONFIG] Obteniendo configuración del sistema...');
+    
+    // Consulta optimizada para obtener el IGV
+    const query = `
+      SELECT c_valor, n_valor 
+      FROM Valores 
+      WHERE c_valor = 'Igv'
+    `;
+    
+    const result = await pool.request().query(query);
+    
+    if (result.recordset.length > 0) {
+      const igvData = result.recordset[0];
+      const igv = parseFloat(igvData.n_valor) || 0;
+      
+      console.log(`✅ [CONFIG] IGV obtenido: ${igv}%`);
+      
+      res.json({
+        success: true,
+        data: {
+          igv: igv,
+          igvPorcentaje: igv,
+          igvDecimal: igv / 100
+        },
+        message: 'Configuración obtenida exitosamente'
+      });
+    } else {
+      console.log('⚠️ [CONFIG] IGV no encontrado en la base de datos');
+      res.json({
+        success: true,
+        data: {
+          igv: 18,
+          igvPorcentaje: 18,
+          igvDecimal: 0.18
+        },
+        message: 'IGV no encontrado, usando valor por defecto: 18%'
+      });
+    }
+    
+  } catch (error) {
+    console.error('❌ [CONFIG] Error obteniendo configuración:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Error al obtener configuración',
+      details: error.message
+    });
+  }
+});
+
+// =====================================================
+// DESCUENTOS POR LABORATORIO Y TIPIFICACIÓN
+// =====================================================
+
+router.get('/cliente-tipificacion/:labo/:ruc', async (req, res) => {
+  try {
+    const { labo, ruc } = req.params;
+    
+    // Verificar cache primero
+    const cacheKey = `tipificacion_${labo}_${ruc}`;
+    const cachedData = getFromCache(tipificacionCache, cacheKey);
+    
+    if (cachedData) {
+      console.log(`✅ [CACHE-TIPIFICACION] Tipificación desde cache para labo: ${labo}, ruc: ${ruc}`);
+      return res.json({
+        success: true,
+        data: cachedData,
+        message: 'Tipificación obtenida desde cache'
+      });
+    }
+    
+    const pool = await getConnection();
+    console.log(`🔍 [TIPIFICACION] Ejecutando sp_cliente_tipificacion para labo: ${labo}, ruc: ${ruc}`);
+    
+    // Usar el procedimiento almacenado como especificaste
+    const result = await pool.request()
+      .input('labo', labo)
+      .input('ruc', ruc)
+      .execute('sp_cliente_tipificacion');
+    
+    if (result.recordset.length > 0) {
+      const tipificacion = result.recordset[0].tipificacion;
+      const data = { tipificacion: tipificacion };
+      
+      console.log(`✅ [TIPIFICACION] Tipificación encontrada: ${tipificacion}`);
+      
+      // Guardar en cache por 15 minutos (tipificaciones cambian poco)
+      setCache(tipificacionCache, cacheKey, data, 900000);
+      
+      res.json({
+        success: true,
+        data: data,
+        message: 'Tipificación obtenida exitosamente'
+      });
+    } else {
+      console.log(`⚠️ [TIPIFICACION] No se encontró tipificación para labo: ${labo}, ruc: ${ruc}`);
+      
+      const data = { tipificacion: null };
+      
+      // Cachear resultado negativo por 5 minutos
+      setCache(tipificacionCache, cacheKey, data, 300000);
+      
+      res.json({
+        success: true,
+        data: data,
+        message: 'No se encontró tipificación para este cliente y laboratorio'
+      });
+    }
+  } catch (error) {
+    console.error('❌ [TIPIFICACION] Error ejecutando sp_cliente_tipificacion:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Error al obtener tipificación',
+      details: error.message
+    });
+  }
+});
+
+// =====================================================
+// DESCUENTOS POR LABORATORIO Y TIPIFICACIÓN - TODOS LOS RANGOS
+// =====================================================
+
+router.get('/descuento-laboratorio-rangos/:tipifica/:codpro', async (req, res) => {
+  try {
+    const { tipifica, codpro } = req.params;
+    
+    // Verificar cache primero
+    const cacheKey = `descuento_rangos_${tipifica}_${codpro}`;
+    const cachedData = getFromCache(descuentoCache, cacheKey);
+    
+    if (cachedData) {
+      console.log(`✅ [CACHE-DESCUENTO-RANGOS] Rangos desde cache para tipificación: ${tipifica}, producto: ${codpro}`);
+      return res.json({
+        success: true,
+        data: cachedData,
+        message: 'Rangos de descuento obtenidos desde cache'
+      });
+    }
+    
+    const pool = await getConnection();
+    console.log(`🔍 [DESCUENTO-RANGOS] Ejecutando sp_Descuento_labo_buscaY para tipificación: ${tipifica}, producto: ${codpro}`);
+    
+    // Usar el procedimiento almacenado para obtener TODOS los rangos
+    const result = await pool.request()
+      .input('tipifica', parseInt(tipifica))
+      .input('cod', codpro)
+      .execute('sp_Descuento_labo_buscaY');
+    
+    if (result.recordset.length > 0) {
+      const escalas = result.recordset;
+      console.log(`📊 [DESCUENTO-RANGOS] Rangos encontrados:`, escalas.map(e => `Desde: ${e.Desde}, Descuento: ${e.Porcentaje}%`));
+      
+      // Ordenar por cantidad desde (ascendente) para facilitar el cálculo
+      const escalasOrdenadas = escalas.sort((a, b) => parseFloat(a.Desde) - parseFloat(b.Desde));
+      
+      // Crear estructura de datos optimizada para cálculos rápidos
+      const rangosDescuento = {
+        escalas: escalasOrdenadas
+      };
+      
+      console.log(`✅ [DESCUENTO-RANGOS] Rangos procesados para tipificación: ${tipifica}, producto: ${codpro}`);
+      
+      // Guardar en cache por 10 minutos (más tiempo porque son datos más estables)
+      setCache(descuentoCache, cacheKey, rangosDescuento, 600000);
+      
+      res.json({
+        success: true,
+        data: rangosDescuento,
+        message: 'Rangos de descuento obtenidos exitosamente'
+      });
+    } else {
+      console.log(`⚠️ [DESCUENTO-RANGOS] No se encontraron rangos para tipificación: ${tipifica}, producto: ${codpro}`);
+      
+      // Cachear resultado negativo por 5 minutos
+      setCache(descuentoCache, cacheKey, null, 300000);
+      
+      res.json({
+        success: true,
+        data: null,
+        message: 'No se encontraron rangos de descuento para este producto'
+      });
+    }
+  } catch (error) {
+    console.error('❌ [DESCUENTO-RANGOS] Error ejecutando sp_Descuento_labo_buscaY:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Error al obtener rangos de descuento de laboratorio',
+      details: error.message
+    });
+  }
+});
+
+// =====================================================
+// DESCUENTOS POR LABORATORIO Y TIPIFICACIÓN - CANTIDAD ESPECÍFICA (MANTENER COMPATIBILIDAD)
+// =====================================================
+
+router.get('/descuento-laboratorio/:tipifica/:codpro/:cantidad', async (req, res) => {
+  try {
+    const { tipifica, codpro, cantidad } = req.params;
+    
+    // Verificar cache primero
+    const cacheKey = `descuento_${tipifica}_${codpro}_${cantidad}`;
+    const cachedData = getFromCache(descuentoCache, cacheKey);
+    
+    if (cachedData) {
+      console.log(`✅ [CACHE-DESCUENTO] Descuento desde cache para tipificación: ${tipifica}, producto: ${codpro}, cantidad: ${cantidad}`);
+      return res.json({
+        success: true,
+        data: cachedData,
+        message: 'Descuento obtenido desde cache'
+      });
+    }
+    
+    const pool = await getConnection();
+    console.log(`🔍 [DESCUENTO-LAB] Ejecutando sp_Descuento_labo_buscaY para tipificación: ${tipifica}, producto: ${codpro}, cantidad: ${cantidad}`);
+    
+    // Usar el procedimiento almacenado como especificaste
+    const result = await pool.request()
+      .input('tipifica', parseInt(tipifica))
+      .input('cod', codpro)
+      .execute('sp_Descuento_labo_buscaY');
+    
+    if (result.recordset.length > 0) {
+      // Buscar la escala de descuento apropiada basada en la cantidad
+      const escalas = result.recordset;
+      console.log(`📊 [DESCUENTO-LAB] Escalas encontradas:`, escalas.map(e => `Desde: ${e.Desde}, Descuento: ${e.Porcentaje}%`));
+      
+      // Ordenar por cantidad desde (descendente) para encontrar la escala apropiada
+      const escalasOrdenadas = escalas.sort((a, b) => parseFloat(b.Desde) - parseFloat(a.Desde));
+      
+      const cantidadNumerica = parseFloat(cantidad);
+      let descuentoAplicable = null;
+      
+      // Encontrar la escala que corresponde a la cantidad
+      for (const escala of escalasOrdenadas) {
+        if (cantidadNumerica >= parseFloat(escala.Desde)) {
+          descuentoAplicable = escala;
+          break;
+        }
+      }
+      
+      if (descuentoAplicable) {
+        console.log(`✅ [DESCUENTO-LAB] Descuento aplicable: ${descuentoAplicable.Porcentaje}% para cantidad ${cantidad} (escala desde ${descuentoAplicable.Desde})`);
+        
+        // Guardar en cache por 5 minutos
+        setCache(descuentoCache, cacheKey, descuentoAplicable, 300000);
+        
+        res.json({
+          success: true,
+          data: descuentoAplicable,
+          message: 'Descuento de laboratorio obtenido exitosamente'
+        });
+      } else {
+        console.log(`⚠️ [DESCUENTO-LAB] No hay descuento aplicable para cantidad ${cantidad}. Escala mínima: ${Math.min(...escalas.map(e => parseFloat(e.Desde)))}`);
+        
+        // Cachear resultado negativo por 2 minutos
+        setCache(descuentoCache, cacheKey, null, 120000);
+        
+        res.json({
+          success: true,
+          data: null,
+          message: 'No hay descuento aplicable para esta cantidad'
+        });
+      }
+    } else {
+      console.log(`⚠️ [DESCUENTO-LAB] No se encontró descuento para tipificación: ${tipifica}, producto: ${codpro}`);
+      
+      // Cachear resultado negativo por 2 minutos
+      setCache(descuentoCache, cacheKey, null, 120000);
+      
+      res.json({
+        success: true,
+        data: null,
+        message: 'No se encontró descuento de laboratorio para este producto'
+      });
+    }
+  } catch (error) {
+    console.error('❌ [DESCUENTO-LAB] Error ejecutando sp_Descuento_labo_buscaY:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Error al obtener descuento de laboratorio',
+      details: error.message
+    });
+  }
+});
+
+// =====================================================
+// BONIFICACIONES DE PRODUCTOS (TABLA DIRECTA)
+// =====================================================
+router.get('/bonificaciones/:codpro', async (req, res) => {
+  try {
+    const { codpro } = req.params;
+    
+    console.log(`🔍 [BONIFICACION] Buscando bonificaciones para producto: ${codpro}`);
+    
+    const pool = await getConnection();
+    
+    // Buscar en la tabla Bonificaciones directamente
+    const result = await pool.request()
+      .input('codpro', codpro.trim())
+      .query(`
+        SELECT Codproducto, Factor, CodBoni, Cantidad 
+        FROM Bonificaciones 
+        WHERE Codproducto = @codpro
+      `);
+    
+    if (result.recordset.length > 0) {
+      const bonificacion = result.recordset[0];
+      console.log(`✅ [BONIFICACION] Bonificación encontrada: Factor ${bonificacion.Factor}, Producto bonificado: ${bonificacion.CodBoni}, Cantidad: ${bonificacion.Cantidad}`);
+      
+      // Obtener datos del producto bonificado
+      const productoBonificadoResult = await pool.request()
+        .input('codpro', bonificacion.CodBoni.trim())
+        .query(`
+          SELECT 
+            p.codpro,
+            p.nombre AS nombre_producto,
+            p.PventaMa as Pventa,
+            p.ComisionH AS Desc1,
+            p.comisionV AS Desc2,
+            p.comisionR AS Desc3,
+            ISNULL(SUM(s.saldo), 0) AS saldo_total
+          FROM productos p
+          LEFT JOIN saldos s ON p.codpro = s.codpro AND s.almacen <> '3'
+          WHERE p.codpro = @codpro
+          GROUP BY p.codpro, p.nombre, p.PventaMa, p.ComisionH, p.comisionV, p.comisionR
+        `);
+      
+      if (productoBonificadoResult.recordset.length > 0) {
+        const productoBonificado = productoBonificadoResult.recordset[0];
+        
+        const bonificacionData = {
+          factor: bonificacion.Factor,
+          cantidadBonificada: bonificacion.Cantidad,
+          productoBonificado: productoBonificado,
+          esBonificacion: true
+        };
+        
+        res.json({ success: true, data: bonificacionData, message: 'Bonificación encontrada exitosamente' });
+      } else {
+        console.log('⚠️ [BONIFICACION] No se encontró el producto bonificado en la base de datos');
+        res.json({ success: true, data: null, message: 'Producto bonificado no encontrado' });
+      }
+    } else {
+      console.log('⚠️ [BONIFICACION] No hay bonificación disponible para producto: ' + codpro);
+      res.json({ success: true, data: null, message: 'No hay bonificación disponible' });
+    }
+    
+  } catch (error) {
+    console.error('❌ [BONIFICACION] Error obteniendo bonificación:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Error al obtener bonificación',
+      details: error.message,
+      codpro: req.params.codpro
+    });
+  }
+});
+
+// =====================================================
+// ESCALAS DE DESCUENTOS POR PRODUCTO
+// =====================================================
+
+router.get('/escalas-producto/:codpro', async (req, res) => {
+  try {
+    const { codpro } = req.params;
+    
+    // Verificar cache primero
+    const cacheKey = `escalas_${codpro}`;
+    const cachedData = getFromCache(escalasCache, cacheKey);
+    
+    if (cachedData) {
+      console.log(`✅ [CACHE-ESCALAS] Escalas desde cache para producto: ${codpro}`);
+      return res.json({
+        success: true,
+        data: cachedData,
+        message: 'Escalas obtenidas desde cache'
+      });
+    }
+    
+    const pool = await getConnection();
+    console.log(`🔍 [ESCALAS-PRODUCTO] Ejecutando sp_Escalas_Buscar1 para producto: ${codpro}`);
+    
+    // Usar el procedimiento almacenado como especificaste
+    const result = await pool.request()
+      .input('Codpro', codpro)
+      .execute('sp_Escalas_Buscar1');
+    
+    if (result.recordset.length > 0) {
+      const escalas = result.recordset[0];
+      console.log(`✅ [ESCALAS-PRODUCTO] Escalas encontradas para producto: ${codpro}`);
+      console.log(`📊 [ESCALAS-PRODUCTO] Rangos: ${escalas.Rango1}, ${escalas.Rango2}, ${escalas.Rango3}, ${escalas.Rango4}, ${escalas.Rango5}`);
+      
+      // Guardar en cache por 10 minutos
+      setCache(escalasCache, cacheKey, escalas, 600000);
+      
+      res.json({
+        success: true,
+        data: escalas,
+        message: 'Escalas de descuentos obtenidas exitosamente'
+      });
+    } else {
+      console.log(`⚠️ [ESCALAS-PRODUCTO] No se encontraron escalas para producto: ${codpro}`);
+      
+      // Cachear resultado negativo por 2 minutos
+      setCache(escalasCache, cacheKey, null, 120000);
+      
+      res.json({
+        success: true,
+        data: null,
+        message: 'No se encontraron escalas de descuentos para este producto'
+      });
+    }
+  } catch (error) {
+    console.error('❌ [ESCALAS-PRODUCTO] Error ejecutando sp_Escalas_Buscar1:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Error al obtener escalas de descuentos del producto',
+      details: error.message
+    });
+  }
+});
+
+// =====================================================
 // BÚSQUEDA DE PRODUCTOS CON SALDOS
 // =====================================================
 
@@ -434,11 +889,11 @@ router.get('/productos', async (req, res) => {
     const pool = await getConnection();
     const { search = '', limit = 50 } = req.query;
     
-    console.log(`🔍 Búsqueda de productos - Término: "${search}", Límite: ${limit}`);
+    console.log(`🔍 [PRODUCTOS] Búsqueda de productos - Término: "${search}" (SIN LÍMITE - TODOS)`);
     
-    // Construir la consulta base
+    // Construir la consulta base - SIN LÍMITE TOP para traer TODOS los datos
     let query = `
-      SELECT TOP (${parseInt(limit)})
+      SELECT
           s.codpro,
           p.nombre AS nombre_producto,
           p.PventaMa as Pventa,
@@ -491,7 +946,8 @@ router.get('/productos', async (req, res) => {
     const result = await request.query(query);
     
     console.log(`✅ Productos encontrados: ${result.recordset.length}`);
-    console.log(`📦 Primeros 3 productos:`, result.recordset.slice(0, 3));
+    console.log(`📦 [PRODUCTOS] Primeros 3 productos:`, result.recordset.slice(0, 3));
+    console.log(`✅ [PRODUCTOS] TODOS los productos encontrados: ${result.recordset.length} (SIN LÍMITE)`);
     
     res.json({
       success: true,
@@ -502,7 +958,7 @@ router.get('/productos', async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Error al buscar productos:', error);
+    console.error('❌ [PRODUCTOS] Error al buscar productos:', error);
     res.status(500).json({
       success: false,
       error: 'Error al buscar productos',
