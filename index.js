@@ -157,6 +157,68 @@ app.get('/', (req, res) => {
   });
 });
 
+// Ruta de debug para productos (SIN AUTENTICACIÓN)
+app.get('/debug/productos/:codpro', async (req, res) => {
+  try {
+    const { getConnection } = require('./database');
+    const pool = await getConnection();
+    const { codpro } = req.params;
+    
+    console.log(`🔍 [DEBUG] Verificando datos del producto: ${codpro}`);
+    
+    // Consulta directa a la tabla productos
+    const queryProducto = `
+      SELECT 
+        codpro,
+        nombre,
+        PventaMa,
+        ComisionH,
+        comisionV,
+        comisionR,
+        CAST(afecto AS INT) AS afecto
+      FROM productos 
+      WHERE codpro = @codpro
+    `;
+    
+    const resultProducto = await pool.request()
+      .input('codpro', codpro)
+      .query(queryProducto);
+    
+    // Consulta de saldos
+    const querySaldos = `
+      SELECT 
+        codpro,
+        almacen,
+        saldo
+      FROM saldos 
+      WHERE codpro = @codpro
+    `;
+    
+    const resultSaldos = await pool.request()
+      .input('codpro', codpro)
+      .query(querySaldos);
+    
+    console.log(`📦 [DEBUG] Datos del producto:`, resultProducto.recordset);
+    console.log(`📦 [DEBUG] Saldos del producto:`, resultSaldos.recordset);
+    
+    res.json({
+      success: true,
+      data: {
+        producto: resultProducto.recordset[0] || null,
+        saldos: resultSaldos.recordset,
+        totalSaldos: resultSaldos.recordset.length
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ [DEBUG] Error verificando producto:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Error al verificar producto',
+      details: error.message
+    });
+  }
+});
 
 // Ruta de prueba para socket.io
 app.get('/socket-test', (req, res) => {

@@ -52,7 +52,6 @@ router.get('/clientes', async (req, res) => {
     
     // Obtener el CodigoInterno del usuario logueado desde el token
     const authHeader = req.headers.authorization;
-    console.log('🔐 [CLIENTES] Auth header recibido:', authHeader ? 'Presente' : 'Ausente');
     
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
       console.log('❌ [CLIENTES] Error: Token de autorización requerido');
@@ -63,19 +62,13 @@ router.get('/clientes', async (req, res) => {
     }
     
     const token = authHeader.substring(7);
-    console.log('🔑 [CLIENTES] Token extraído:', token.substring(0, 20) + '...');
     
     // Decodificar el token para obtener el CodigoInterno
     let codigoInterno;
     try {
       const jwtSecret = process.env.JWT_SECRET || 'tu_secret_key';
-      console.log('🔐 [CLIENTES] JWT Secret configurado:', jwtSecret ? 'Sí' : 'No');
-      
       const decoded = jwt.verify(token, jwtSecret);
-      console.log('✅ [CLIENTES] Token decodificado exitosamente:', decoded);
-      
       codigoInterno = decoded.CodigoInterno;
-      console.log('👤 [CLIENTES] CodigoInterno extraído:', codigoInterno);
       
       if (!codigoInterno) {
         console.log('❌ [CLIENTES] Error: CodigoInterno no encontrado en el token');
@@ -113,7 +106,6 @@ router.get('/clientes', async (req, res) => {
         .input('codigoInterno', codigoInterno)
         .query(defaultQuery);
       
-      console.log(`📋 [CLIENTES] Carga inicial: ${result.recordset.length} clientes para vendedor: ${codigoInterno} (SIN LÍMITE)`);
       
       return res.json({
         success: true,
@@ -130,7 +122,6 @@ router.get('/clientes', async (req, res) => {
     if (clientCache.has(cacheKey)) {
       const cached = clientCache.get(cacheKey);
       if (Date.now() - cached.timestamp < CACHE_EXPIRY) {
-        console.log(`📦 Cache hit para búsqueda: "${searchTerm}" (vendedor: ${codigoInterno})`);
         return res.json({
           success: true,
           data: cached.data,
@@ -140,7 +131,6 @@ router.get('/clientes', async (req, res) => {
       }
     }
     
-    console.log(`🔍 [CLIENTES] Búsqueda de clientes: "${searchTerm}" (SIN LÍMITE - TODOS, vendedor: ${codigoInterno})`);
     
     // Query optimizada con índices y filtro por vendedor
     const searchQuery = `
@@ -188,7 +178,6 @@ router.get('/clientes', async (req, res) => {
       timestamp: Date.now()
     });
     
-    console.log(`✅ [CLIENTES] Encontrados ${clientes.length} clientes para: "${searchTerm}" (vendedor: ${codigoInterno}) (SIN LÍMITE)`);
     
     res.json({
       success: true,
@@ -393,7 +382,6 @@ router.get('/tablas-listar/:codigoTabla', async (req, res) => {
     const pool = await getConnection();
     const { codigoTabla } = req.params;
     
-    console.log(`🔍 Ejecutando sp_tablas_Listar con código: ${codigoTabla}`);
     
     // Para tipos de documento (código 3), devolver solo Factura y Boleta
     if (parseInt(codigoTabla) === 3) {
@@ -402,8 +390,6 @@ router.get('/tablas-listar/:codigoTabla', async (req, res) => {
         { n_numero: 2, c_describe: 'Boleta' }
       ];
       
-      console.log(`✅ Tipos de documento fijos devueltos: ${tiposDocumento.length} elementos`);
-      console.log(`📋 Datos:`, tiposDocumento);
       
       return res.json({
         success: true,
@@ -420,8 +406,6 @@ router.get('/tablas-listar/:codigoTabla', async (req, res) => {
       .input('codigoTabla', parseInt(codigoTabla))
       .query(query);
     
-    console.log(`✅ sp_tablas_Listar ejecutado. Registros encontrados: ${result.recordset.length}`);
-    console.log(`📋 Datos:`, result.recordset);
     
     res.json({
       success: true,
@@ -453,7 +437,6 @@ router.get('/configuracion', async (req, res) => {
   try {
     const pool = await getConnection();
     
-    console.log('🔧 [CONFIG] Obteniendo configuración del sistema...');
     
     // Consulta optimizada para obtener el IGV
     const query = `
@@ -468,7 +451,6 @@ router.get('/configuracion', async (req, res) => {
       const igvData = result.recordset[0];
       const igv = parseFloat(igvData.n_valor) || 0;
       
-      console.log(`✅ [CONFIG] IGV obtenido: ${igv}%`);
       
       res.json({
         success: true,
@@ -515,7 +497,6 @@ router.get('/cliente-tipificacion/:labo/:ruc', async (req, res) => {
     const cachedData = getFromCache(tipificacionCache, cacheKey);
     
     if (cachedData) {
-      console.log(`✅ [CACHE-TIPIFICACION] Tipificación desde cache para labo: ${labo}, ruc: ${ruc}`);
       return res.json({
         success: true,
         data: cachedData,
@@ -524,7 +505,6 @@ router.get('/cliente-tipificacion/:labo/:ruc', async (req, res) => {
     }
     
     const pool = await getConnection();
-    console.log(`🔍 [TIPIFICACION] Ejecutando sp_cliente_tipificacion para labo: ${labo}, ruc: ${ruc}`);
     
     // Usar el procedimiento almacenado como especificaste
     const result = await pool.request()
@@ -536,7 +516,6 @@ router.get('/cliente-tipificacion/:labo/:ruc', async (req, res) => {
       const tipificacion = result.recordset[0].tipificacion;
       const data = { tipificacion: tipificacion };
       
-      console.log(`✅ [TIPIFICACION] Tipificación encontrada: ${tipificacion}`);
       
       // Guardar en cache por 15 minutos (tipificaciones cambian poco)
       setCache(tipificacionCache, cacheKey, data, 900000);
@@ -547,7 +526,6 @@ router.get('/cliente-tipificacion/:labo/:ruc', async (req, res) => {
         message: 'Tipificación obtenida exitosamente'
       });
     } else {
-      console.log(`⚠️ [TIPIFICACION] No se encontró tipificación para labo: ${labo}, ruc: ${ruc}`);
       
       const data = { tipificacion: null };
       
@@ -583,7 +561,6 @@ router.get('/descuento-laboratorio-rangos/:tipifica/:codpro', async (req, res) =
     const cachedData = getFromCache(descuentoCache, cacheKey);
     
     if (cachedData) {
-      console.log(`✅ [CACHE-DESCUENTO-RANGOS] Rangos desde cache para tipificación: ${tipifica}, producto: ${codpro}`);
       return res.json({
         success: true,
         data: cachedData,
@@ -773,11 +750,12 @@ router.get('/bonificaciones/:codpro', async (req, res) => {
             p.ComisionH AS Desc1,
             p.comisionV AS Desc2,
             p.comisionR AS Desc3,
+            CAST(p.afecto AS INT) AS afecto,
             ISNULL(SUM(s.saldo), 0) AS saldo_total
           FROM productos p
           LEFT JOIN saldos s ON p.codpro = s.codpro AND s.almacen <> '3'
           WHERE p.codpro = @codpro
-          GROUP BY p.codpro, p.nombre, p.PventaMa, p.ComisionH, p.comisionV, p.comisionR
+          GROUP BY p.codpro, p.nombre, p.PventaMa, p.ComisionH, p.comisionV, p.comisionR, CAST(p.afecto AS INT)
         `);
       
       if (productoBonificadoResult.recordset.length > 0) {
@@ -900,6 +878,7 @@ router.get('/productos', async (req, res) => {
           p.ComisionH AS Desc1,
           p.comisionV AS Desc2,
           p.comisionR AS Desc3,
+          CAST(p.afecto AS INT) AS afecto,
           SUM(s.saldo) AS saldo_total
       FROM
           saldos s
@@ -927,7 +906,8 @@ router.get('/productos', async (req, res) => {
           p.PventaMa,
           p.ComisionH,
           p.comisionV,
-          p.comisionR
+          p.comisionR,
+          CAST(p.afecto AS INT)
       ORDER BY
           saldo_total DESC
     `;
@@ -986,6 +966,7 @@ router.get('/productos/:codpro', async (req, res) => {
           p.ComisionH AS Desc1,
           p.comisionV AS Desc2,
           p.comisionR AS Desc3,
+          CAST(p.afecto AS INT) AS afecto,
           SUM(s.saldo) AS saldo_total
       FROM
           saldos s
@@ -1000,7 +981,8 @@ router.get('/productos/:codpro', async (req, res) => {
           p.PventaMa,
           p.ComisionH,
           p.comisionV,
-          p.comisionR
+          p.comisionR,
+          CAST(p.afecto AS INT)
       ORDER BY
           saldo_total DESC
     `;
@@ -1037,6 +1019,71 @@ router.get('/productos/:codpro', async (req, res) => {
 });
 
 /**
+ * GET /api/pedido_app/productos-debug/:codpro
+ * Ruta de debug para verificar datos de un producto específico (SIN AUTENTICACIÓN)
+ */
+router.get('/productos-debug/:codpro', async (req, res) => {
+  try {
+    const pool = await getConnection();
+    const { codpro } = req.params;
+    
+    console.log(`🔍 [DEBUG] Verificando datos del producto: ${codpro}`);
+    
+    // Consulta directa a la tabla productos
+    const queryProducto = `
+      SELECT 
+        codpro,
+        nombre,
+        PventaMa,
+        ComisionH,
+        comisionV,
+        comisionR,
+        afecto
+      FROM productos 
+      WHERE codpro = @codpro
+    `;
+    
+    const resultProducto = await pool.request()
+      .input('codpro', codpro)
+      .query(queryProducto);
+    
+    // Consulta de saldos
+    const querySaldos = `
+      SELECT 
+        codpro,
+        almacen,
+        saldo
+      FROM saldos 
+      WHERE codpro = @codpro
+    `;
+    
+    const resultSaldos = await pool.request()
+      .input('codpro', codpro)
+      .query(querySaldos);
+    
+    console.log(`📦 [DEBUG] Datos del producto:`, resultProducto.recordset);
+    console.log(`📦 [DEBUG] Saldos del producto:`, resultSaldos.recordset);
+    
+    res.json({
+      success: true,
+      data: {
+        producto: resultProducto.recordset[0] || null,
+        saldos: resultSaldos.recordset,
+        totalSaldos: resultSaldos.recordset.length
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ [DEBUG] Error verificando producto:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Error al verificar producto',
+      details: error.message
+    });
+  }
+});
+
+/**
  * GET /api/pedido_app/productos-test
  * Ruta de prueba para verificar la consulta base sin filtros
  */
@@ -1054,6 +1101,7 @@ router.get('/productos-test', async (req, res) => {
           p.ComisionH AS Desc1,
           p.comisionV AS Desc2,
           p.comisionR AS Desc3,
+          CAST(p.afecto AS INT) AS afecto,
           SUM(s.saldo) AS saldo_total
       FROM
           saldos s
@@ -1067,7 +1115,8 @@ router.get('/productos-test', async (req, res) => {
           p.PventaMa,
           p.ComisionH,
           p.comisionV,
-          p.comisionR
+          p.comisionR,
+          CAST(p.afecto AS INT)
       ORDER BY
           saldo_total DESC
     `;
@@ -1091,6 +1140,106 @@ router.get('/productos-test', async (req, res) => {
     res.status(500).json({
       success: false,
       error: 'Error en prueba de productos',
+      details: error.message
+    });
+  }
+});
+
+// Endpoint para obtener descuentos específicos del cliente usando sp_Desclie_Buscar1
+router.get('/descuentos-cliente/:ruc/:codpro', async (req, res) => {
+  try {
+    const { ruc, codpro } = req.params;
+    const pool = await getConnection();
+    
+    console.log(`🔍 [DESCUENTOS-CLIENTE] Obteniendo descuentos específicos para RUC: ${ruc}, Producto: ${codpro}`);
+    
+    const request = pool.request();
+    request.input('RuClie', ruc);
+    request.input('codpro', codpro);
+    
+    const result = await request.execute('sp_Desclie_Buscar1');
+    
+    if (result.recordset && result.recordset.length > 0) {
+      const descuentoCliente = result.recordset[0];
+      const descuentosEspecificos = {
+        ruc: descuentoCliente.Ruclie,
+        razon: descuentoCliente.Razon,
+        producto: descuentoCliente.Producto,
+        nombre: descuentoCliente.Nombre,
+        Descuento1: descuentoCliente.Descuento1 || 0,
+        Descuento2: descuentoCliente.Descuento2 || 0,
+        Descuento3: descuentoCliente.Descuento3 || 0,
+        Reemplazo: descuentoCliente.Reemplazo
+      };
+      
+      console.log(`✅ [DESCUENTOS-CLIENTE] Descuentos específicos obtenidos:`, descuentosEspecificos);
+      
+      res.json({
+        success: true,
+        data: descuentosEspecificos
+      });
+    } else {
+      console.log(`⚠️ [DESCUENTOS-CLIENTE] No se encontraron descuentos específicos para RUC: ${ruc}, Producto: ${codpro}`);
+      res.json({
+        success: false,
+        message: 'No se encontraron descuentos específicos para este cliente y producto'
+      });
+    }
+
+  } catch (error) {
+    console.error('❌ [DESCUENTOS-CLIENTE] Error obteniendo descuentos específicos:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Error al obtener descuentos específicos del cliente',
+      details: error.message
+    });
+  }
+});
+
+// Endpoint para obtener descuentos básicos del producto usando sp_Productos_buscaxcuenta
+router.get('/producto-descuentos-basicos/:codpro', async (req, res) => {
+  try {
+    const { codpro } = req.params;
+    const pool = await getConnection();
+    
+    console.log(`🔍 [DESCUENTOS-BASICOS] Obteniendo descuentos básicos para producto: ${codpro}`);
+    
+    const request = pool.request();
+    request.input('producto', codpro);
+    
+    const result = await request.execute('sp_Productos_buscaxcuenta');
+    
+    if (result.recordset && result.recordset.length > 0) {
+      const producto = result.recordset[0];
+      const descuentosBasicos = {
+        codpro: producto.codpro,
+        nombre: producto.nombre,
+        ComisionH: producto.ComisionH || 0,
+        ComisionV: producto.ComisionV || 0,
+        ComisionR: producto.ComisionR || 0,
+        PventaMa: producto.PventaMa,
+        afecto: producto.Afecto
+      };
+      
+      console.log(`✅ [DESCUENTOS-BASICOS] Descuentos básicos obtenidos:`, descuentosBasicos);
+      
+      res.json({
+        success: true,
+        data: descuentosBasicos
+      });
+    } else {
+      console.log(`⚠️ [DESCUENTOS-BASICOS] No se encontró producto: ${codpro}`);
+      res.json({
+        success: false,
+        message: 'Producto no encontrado'
+      });
+    }
+
+  } catch (error) {
+    console.error('❌ [DESCUENTOS-BASICOS] Error obteniendo descuentos básicos:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Error al obtener descuentos básicos del producto',
       details: error.message
     });
   }
