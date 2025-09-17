@@ -1091,8 +1091,6 @@ router.get('/productos-test', async (req, res) => {
   try {
     const pool = await getConnection();
     
-    console.log('🧪 Probando consulta base de productos...');
-    
     const query = `
       SELECT TOP 10
           s.codpro,
@@ -1121,12 +1119,8 @@ router.get('/productos-test', async (req, res) => {
           saldo_total DESC
     `;
     
-    console.log('📋 Query de prueba:', query);
-    
     const result = await pool.request().query(query);
     
-    console.log(`✅ Productos encontrados en prueba: ${result.recordset.length}`);
-    console.log(`📦 Primeros 3 productos:`, result.recordset.slice(0, 3));
     
     res.json({
       success: true,
@@ -1242,6 +1236,252 @@ router.get('/producto-descuentos-basicos/:codpro', async (req, res) => {
       error: 'Error al obtener descuentos básicos del producto',
       details: error.message
     });
+  }
+});
+
+// =====================================================
+// ENDPOINT UNIFICADO: CÁLCULOS COMPLETOS AL AGREGAR PRODUCTO
+// =====================================================
+// POST /api/pedido_app/producto-calculos
+// body: { ruc, codpro, cantidad }
+router.post('/producto-calculos', async (req, res) => {
+  try {
+    const { ruc, codpro, cantidad } = req.body || {};
+    if (!ruc || !codpro) {
+      return res.status(400).json({ success: false, error: 'Parámetros inválidos' });
+    }
+
+    const pool = await getConnection();
+
+    // 1) Intentar con SP unificado primero
+    try {
+      const sp = await pool.request()
+        .input('ruc', ruc)
+        .input('codpro', codpro)
+        .input('cantidad', cantidad || 1)
+        .execute('Jhon_ProductoCalculos');
+
+      const row = sp.recordset?.[0];
+      if (row) {
+        // Bonificación (tabla)
+        const rB = await pool.request()
+          .input('codpro', codpro.trim())
+          .query(`SELECT Codproducto, Factor, CodBoni, Cantidad FROM Bonificaciones WHERE Codproducto = @codpro`);
+        const boni = rB.recordset?.[0] || null;
+
+        // Log requerido por el usuario: indicar la fuente del cálculo
+        console.error('[CALC-SOURCE] sp_unificado', { ruc, codpro, cantidad });
+        res.setHeader('X-Calc-Source', 'sp_unificado');
+        return res.json({
+          success: true,
+          data: {
+            basicos: {
+              codpro: row.codpro,
+              nombre: row.nombre,
+              PventaMa: row.Pventa,
+              ComisionH: row.Desc1, // valores finales, la UI usa resultado
+              ComisionV: row.Desc2,
+              ComisionR: row.Desc3,
+              afecto: row.afecto,
+            },
+            descuentosCliente: null, // opcional; no necesario con SP unificado
+            tipificacion: row.tipificacion ?? null,
+            rangosTipificacion: null,
+            escalas: {
+              Rango1: row.R1, Rango2: row.R2, Rango3: row.R3, Rango4: row.R4, Rango5: row.R5,
+              rangoUsado: row.escalaRango,
+            },
+            bonificacion: boni,
+            resultado: {
+              Desc1: row.Desc1,
+              Desc2: row.Desc2,
+              Desc3: row.Desc3,
+              afecto: row.afecto,
+              Pventa: row.Pventa,
+            },
+            meta: { source: 'sp_unificado' }
+          },
+        });
+      }
+    } catch (e) {
+      console.error('⚠️ [UNIFICADO] SP unificado falló, usando flujo anterior:', e.message);
+      // continua al flujo existente (fallback)
+    }
+
+    // Helpers de cache
+    const keyBasicos = `basicos_${codpro}`;
+    const keyDescClie = `desclie_${ruc}_${codpro}`;
+    const labo = (codpro || '').toString().trim().substring(0, 2);
+    const keyTipif = `tipif_${labo}_${ruc}`;
+    const keyRangos = `rangos_${ruc}_${codpro}`;
+    const keyEscalas = `escalas_${codpro}`;
+    const keyBoni = `boni_${codpro}`;
+
+    const readBasicos = (async () => {
+      const cached = getFromCache(descuentoCache, keyBasicos, 3600000);
+      if (cached) return cached;
+      const r = await pool.request().input('producto', codpro).execute('sp_Productos_buscaxcuenta');
+      const data = r.recordset?.[0] || null;
+      if (data) {
+        const bas = {
+          codpro: data.codpro,
+          nombre: data.nombre,
+          ComisionH: data.ComisionH || 0,
+          ComisionV: data.ComisionV || 0,
+          ComisionR: data.ComisionR || 0,
+          PventaMa: data.PventaMa,
+          afecto: data.Afecto
+        };
+        setCache(descuentoCache, keyBasicos, bas, 3600000);
+        return bas;
+      }
+      return null;
+    })();
+
+    const readDescuentosCliente = (async () => {
+      const cached = getFromCache(descuentoCache, keyDescClie, 900000);
+      if (cached !== null) return cached;
+      const r = await pool.request().input('RuClie', ruc).input('codpro', codpro).execute('sp_Desclie_Buscar1');
+      const data = r.recordset?.[0] || null;
+      const resp = data ? {
+        Descuento1: data.Descuento1 || 0,
+        Descuento2: data.Descuento2 || 0,
+        Descuento3: data.Descuento3 || 0
+      } : null;
+      setCache(descuentoCache, keyDescClie, resp, 900000);
+      return resp;
+    })();
+
+    const readTipificacion = (async () => {
+      const cached = getFromCache(tipificacionCache, keyTipif, 900000);
+      if (cached) return cached;
+      const r = await pool.request().input('labo', labo).input('ruc', ruc).execute('sp_cliente_tipificacion');
+      const tip = r.recordset?.[0]?.tipificacion ?? null;
+      const data = { tipificacion: tip };
+      setCache(tipificacionCache, keyTipif, data, 900000);
+      return data;
+    })();
+
+    const readRangosTipif = (async () => {
+      // depende de tipificación; resolvemos luego si existe tipif
+      return null;
+    })();
+
+    const readEscalas = (async () => {
+      const cached = getFromCache(escalasCache, keyEscalas, 600000);
+      if (cached !== null) return cached;
+      const r = await pool.request().input('Codpro', codpro).execute('sp_Escalas_Buscar1');
+      const data = r.recordset?.[0] || null;
+      setCache(escalasCache, keyEscalas, data, 600000);
+      return data;
+    })();
+
+    const readBonificacion = (async () => {
+      const cached = getFromCache(descuentoCache, keyBoni, 86400000);
+      if (cached !== null) return cached;
+      const r = await pool.request()
+        .input('codpro', codpro.trim())
+        .query(`SELECT Codproducto, Factor, CodBoni, Cantidad FROM Bonificaciones WHERE Codproducto = @codpro`);
+      const data = r.recordset?.[0] || null;
+      setCache(descuentoCache, keyBoni, data, 86400000);
+      return data;
+    })();
+
+    // Ejecutar en paralelo lo que no depende
+    const [basicos, descClie, tipifData, escalas, boni] = await Promise.all([
+      readBasicos, readDescuentosCliente, readTipificacion, readEscalas, readBonificacion
+    ]);
+
+    // Si hay tipificación, obtener rangos (y calcular porcentaje por cantidad)
+    let tipifRangos = null;
+    let descTipif = 0;
+    if (tipifData && tipifData.tipificacion != null) {
+      const key = keyRangos;
+      const cached = getFromCache(descuentoCache, key, 600000);
+      if (cached !== null) {
+        tipifRangos = cached;
+      } else {
+        const rr = await pool.request().input('tipifica', parseInt(tipifData.tipificacion)).input('cod', codpro).execute('sp_Descuento_labo_buscaY');
+        tipifRangos = rr.recordset || [];
+        setCache(descuentoCache, key, tipifRangos, 600000);
+      }
+      // cálculo local: mayor "Desde" <= cantidad
+      const cant = parseFloat(cantidad || 1);
+      const orden = [...tipifRangos].sort((a,b)=> parseFloat(b.Desde)-parseFloat(a.Desde));
+      const match = orden.find(e => cant >= parseFloat(e.Desde));
+      descTipif = match ? parseFloat(match.Porcentaje || 0) : 0;
+    }
+
+    // Aplicar reglas de reemplazo (>0 aplica; 0/-9 mantiene anterior)
+    // Base
+    let Desc1 = basicos?.ComisionH || 0;
+    let Desc2 = basicos?.ComisionV || 0;
+    let Desc3 = basicos?.ComisionR || 0;
+
+    // Cliente (3 campos)
+    if (descClie) {
+      if (parseFloat(descClie.Descuento1) > 0) Desc1 = parseFloat(descClie.Descuento1);
+      if (parseFloat(descClie.Descuento2) > 0) Desc2 = parseFloat(descClie.Descuento2);
+      if (parseFloat(descClie.Descuento3) > 0) Desc3 = parseFloat(descClie.Descuento3);
+    }
+
+    // Tipificación (solo Desc1)
+    if (parseFloat(descTipif) > 0) {
+      Desc1 = parseFloat(descTipif);
+    }
+
+    // Escalas (tres campos, respetando -9 como no aplica)
+    if (escalas) {
+      const cant = parseFloat(cantidad || 1);
+      // elegir rango
+      const r1 = parseFloat(escalas.Rango1 || 0), r2 = parseFloat(escalas.Rango2 || 0), r3 = parseFloat(escalas.Rango3 || 0), r4 = parseFloat(escalas.Rango4 || 0), r5 = parseFloat(escalas.Rango5 || 0);
+      let rangoUsado = 1;
+      if (cant >= r5 && r5 > 0) rangoUsado = 5;
+      else if (cant >= r4 && r4 > 0) rangoUsado = 4;
+      else if (cant >= r3 && r3 > 0) rangoUsado = 3;
+      else if (cant >= r2 && r2 > 0) rangoUsado = 2;
+      else if (cant >= r1 && r1 > 0) rangoUsado = 1;
+
+      const take = (v) => v == null ? -9 : parseFloat(v);
+      const map = {
+        1: { d1: take(escalas.Des11), d2: take(escalas.des12), d3: take(escalas.des13) },
+        2: { d1: take(escalas.des21), d2: take(escalas.des22), d3: take(escalas.des23) },
+        3: { d1: take(escalas.des31), d2: take(escalas.des32), d3: take(escalas.des33) },
+        4: { d1: take(escalas.des41), d2: take(escalas.des42), d3: take(escalas.des43) },
+        5: { d1: take(escalas.des51), d2: take(escalas.des52), d3: take(escalas.des53) }
+      };
+      const vals = map[rangoUsado] || { d1:-9, d2:-9, d3:-9 };
+      if (vals.d1 > 0) Desc1 = vals.d1;
+      if (vals.d2 > 0) Desc2 = vals.d2;
+      if (vals.d3 > 0) Desc3 = vals.d3;
+    }
+
+    // Construir respuesta
+    const respuesta = {
+      success: true,
+      data: {
+        basicos,
+        descuentosCliente: descClie,
+        tipificacion: tipifData?.tipificacion ?? null,
+        rangosTipificacion: tipifRangos,
+        escalas: escalas,
+        bonificacion: boni,
+        resultado: {
+          Desc1, Desc2, Desc3,
+          afecto: basicos?.afecto ?? null,
+          Pventa: basicos?.PventaMa ?? null
+        },
+        meta: { source: 'fallback' }
+      }
+    };
+
+    // Log requerido por el usuario: indicar la fuente del cálculo
+    console.error('[CALC-SOURCE] fallback', { ruc, codpro, cantidad });
+    res.setHeader('X-Calc-Source', 'fallback');
+    return res.json(respuesta);
+  } catch (error) {
+    console.error('❌ [UNIFICADO] Error en producto-calculos:', error);
+    return res.status(500).json({ success: false, error: 'Error en cálculos unificados', details: error.message });
   }
 });
 
