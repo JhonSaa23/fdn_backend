@@ -136,7 +136,24 @@ BEGIN
   IF (@s3 IS NOT NULL AND @s3 > 0) SET @Desc3 = @s3;
 
   /* ==========================
-     5) Resultado final
+     5) Obtener TODOS los rangos de tipificación para cálculos locales
+     ========================== */
+  DECLARE @TipifRangos TABLE (
+    Desde decimal(18,6),
+    Porcentaje decimal(18,6)
+  );
+
+  IF (@tipificacion IS NOT NULL)
+  BEGIN
+    INSERT INTO @TipifRangos (Desde, Porcentaje)
+    SELECT ISNULL(dl.Desde, 0), ISNULL(dl.Porcentaje, 0)
+    FROM Descuento_laboratorio dl WITH (NOLOCK)
+    WHERE dl.Tipificacion = @tipificacion AND dl.Codpro = @codpro
+    ORDER BY dl.Desde DESC;
+  END
+
+  /* ==========================
+     6) Resultado final con TODOS los rangos
      ========================== */
   SELECT
     codpro      = @codproOut,
@@ -150,7 +167,24 @@ BEGIN
     tipifDesde  = @TipifDesde,
     tipifPct    = @TipifPorc,
     escalaRango = @rangoUsado,
-    R1=@R1,R2=@R2,R3=@R3,R4=@R4,R5=@R5;
+    R1=@R1,R2=@R2,R3=@R3,R4=@R4,R5=@R5,
+    -- Rangos de tipificación para cálculos locales
+    tipifRangos = (
+      SELECT Desde, Porcentaje 
+      FROM @TipifRangos 
+      FOR JSON PATH
+    ),
+    -- Rangos de escalas para cálculos locales
+    escalasRangos = (
+      SELECT 
+        Rango1=@R1, Rango2=@R2, Rango3=@R3, Rango4=@R4, Rango5=@R5,
+        des11=@e11, des12=@e12, des13=@e13,
+        des21=@e21, des22=@e22, des23=@e23,
+        des31=@e31, des32=@e32, des33=@e33,
+        des41=@e41, des42=@e42, des43=@e43,
+        des51=@e51, des52=@e52, des53=@e53
+      FOR JSON PATH, WITHOUT_ARRAY_WRAPPER
+    );
 END
 GO
 

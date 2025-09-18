@@ -1286,10 +1286,11 @@ router.post('/producto-calculos', async (req, res) => {
             },
             descuentosCliente: null, // opcional; no necesario con SP unificado
             tipificacion: row.tipificacion ?? null,
-            rangosTipificacion: null,
+            rangosTipificacion: row.tipifRangos ? JSON.parse(row.tipifRangos) : null,
             escalas: {
               Rango1: row.R1, Rango2: row.R2, Rango3: row.R3, Rango4: row.R4, Rango5: row.R5,
               rangoUsado: row.escalaRango,
+              rangosCompletos: row.escalasRangos ? JSON.parse(row.escalasRangos) : null,
             },
             bonificacion: boni,
             resultado: {
