@@ -33,6 +33,7 @@ const vistasRoutes = require('./routes/vistas');
 const historialClienteRoutes = require('./routes/historialCliente');
 const infocorpRoutes = require('./routes/infocorp');
 const pedidoAppRoutes = require('./routes/pedido_app');
+const letrasRoutes = require('./routes/letras');
 const { authenticateToken, requireAdmin, optionalAuth } = require('./middleware/auth');
 
 const app = express();
@@ -131,7 +132,6 @@ app.use('/api/saldos', authenticateToken, saldosRoutes);
 app.use('/api/productos', authenticateToken, productosRoutes);
 app.use('/api/guias-venta', authenticateToken, guiasVentaRoutes);
 app.use('/api/vendedores', authenticateToken, vendedoresRoutes);
-app.use('/api', authenticateToken, canjeRoutes);
 
 // Rutas de vistas - solo algunas requieren admin
 app.use('/api/vistas', authenticateToken, vistasRoutes);
@@ -142,6 +142,12 @@ app.use('/api/infocorp', authenticateToken, infocorpRoutes);
 
 // Ruta para la app móvil de pedidos
 app.use('/api/pedido_app', authenticateToken, pedidoAppRoutes);
+
+// Ruta para letras de cambio
+app.use('/api/letras', authenticateToken, letrasRoutes);
+
+// Ruta general de canje (DEBE IR AL FINAL)
+app.use('/api', authenticateToken, canjeRoutes);
 
 // Ruta de prueba
 app.get('/', (req, res) => {

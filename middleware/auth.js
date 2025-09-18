@@ -8,6 +8,7 @@ const JWT_SECRET = process.env.JWT_SECRET || 'tu_clave_secreta_muy_segura_aqui';
 // Middleware de autenticación
 const authenticateToken = async (req, res, next) => {
   try {
+    console.log('🔍 [AUTH] Petición a:', req.url, 'Method:', req.method);
     // Obtener el token del header Authorization
     const authHeader = req.headers['authorization'];
     const token = authHeader && authHeader.split(' ')[1]; // Bearer TOKEN
@@ -27,7 +28,7 @@ const authenticateToken = async (req, res, next) => {
     const result = await pool.request()
       .input('idus', sql.Int, decoded.idus)
       .query(`
-        SELECT IDUS, Nombres, TipoUsuario, Activo, Bloqueado
+        SELECT IDUS, CodigoInterno, Nombres, TipoUsuario, Activo, Bloqueado
         FROM UsersSystems 
         WHERE IDUS = @idus AND Activo = 1 AND Bloqueado = 0
       `);
@@ -43,9 +44,12 @@ const authenticateToken = async (req, res, next) => {
     req.user = {
       idus: decoded.idus,
       nombres: result.recordset[0].Nombres,
-      tipoUsuario: result.recordset[0].TipoUsuario
+      tipoUsuario: result.recordset[0].TipoUsuario,
+      CodigoInterno: result.recordset[0].CodigoInterno
     };
 
+    console.log('✅ [AUTH] Usuario autenticado:', req.user);
+    console.log('🔍 [AUTH] Pasando al siguiente middleware para:', req.url);
     next();
   } catch (error) {
     if (error.name === 'JsonWebTokenError') {
