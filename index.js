@@ -51,21 +51,69 @@ const io = new Server(server, {
   pingInterval: 25000
 });
 
-// Configuración CORS mejorada para ngrok
+// Configuración CORS mejorada para ngrok y Render
 app.use(cors({
-  origin: true, // Permitir todos los orígenes en desarrollo
+  origin: [
+    'https://fdn.onrender.com',
+    'http://localhost:3000',
+    'http://localhost:5173',
+    'http://127.0.0.1:3000',
+    'http://127.0.0.1:5173'
+  ],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'ngrok-skip-browser-warning', 'Accept']
+  allowedHeaders: [
+    'Content-Type', 
+    'Authorization', 
+    'ngrok-skip-browser-warning', 
+    'Accept',
+    'X-Requested-With',
+    'Origin',
+    'Access-Control-Request-Method',
+    'Access-Control-Request-Headers'
+  ],
+  exposedHeaders: ['Content-Length', 'X-Foo', 'X-Bar'],
+  preflightContinue: false,
+  optionsSuccessStatus: 200
 }));
+
+// Middleware adicional para CORS y ngrok
+app.use((req, res, next) => {
+  // Asegurar que los headers de CORS estén siempre presentes
+  res.header('Access-Control-Allow-Origin', req.headers.origin || '*');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, ngrok-skip-browser-warning, Accept, X-Requested-With, Origin');
+  res.header('Access-Control-Allow-Credentials', 'true');
+  
+  // Manejar preflight requests
+  if (req.method === 'OPTIONS') {
+    res.status(200).end();
+    return;
+  }
+  
+  next();
+});
 
 // Aumentar límites para uploads
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 app.use(cookieParser());
 
-// Middleware de debugging para ngrok
+// Middleware de debugging para ngrok y CORS
 app.use((req, res, next) => {
+  // Debug para peticiones CORS
+  if (req.method === 'OPTIONS' || req.path.includes('/guias-canje/insertar-detalle')) {
+    console.log('🔍 [CORS DEBUG]:', {
+      method: req.method,
+      path: req.path,
+      origin: req.headers.origin,
+      userAgent: req.headers['user-agent'],
+      ngrokHeader: req.headers['ngrok-skip-browser-warning'],
+      authorization: req.headers.authorization ? 'Present' : 'Missing'
+    });
+  }
+  
+  // Debug para autorizar
   if (req.path.includes('/multi-accion/autorizar')) {
     console.log('🔍 REQUEST DEBUG:', {
       method: req.method,
@@ -253,9 +301,27 @@ if (process.env.NODE_ENV === 'production') {
   });
 }
 
+// Middleware para manejar errores específicos de ngrok
+app.use((req, res, next) => {
+  // Agregar headers adicionales para ngrok
+  res.header('ngrok-skip-browser-warning', 'true');
+  
+  // Log de todas las peticiones para debugging
+  if (process.env.NODE_ENV === 'development') {
+    console.log(`🌐 ${req.method} ${req.path} - Origin: ${req.headers.origin || 'No origin'}`);
+  }
+  
+  next();
+});
+
 // Manejador de errores global
 app.use((err, req, res, next) => {
   console.error('Error no controlado:', err.stack);
+  
+  // Asegurar headers de CORS incluso en errores
+  res.header('Access-Control-Allow-Origin', req.headers.origin || '*');
+  res.header('Access-Control-Allow-Credentials', 'true');
+  
   res.status(500).json({
     success: false,
     error: 'Error interno del servidor',

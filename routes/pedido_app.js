@@ -1263,11 +1263,32 @@ router.post('/producto-calculos', async (req, res) => {
 
       const row = sp.recordset?.[0];
       if (row) {
-        // Bonificación (tabla)
-        const rB = await pool.request()
-          .input('codpro', codpro.trim())
-          .query(`SELECT Codproducto, Factor, CodBoni, Cantidad FROM Bonificaciones WHERE Codproducto = @codpro`);
-        const boni = rB.recordset?.[0] || null;
+        // Usar bonificaciones del procedimiento unificado
+        let bonificaciones = null;
+        if (row.bonificaciones) {
+          try {
+            bonificaciones = JSON.parse(row.bonificaciones);
+            console.log(`✅ [BONIFICACION] Bonificaciones del procedimiento: ${bonificaciones.length} opciones`);
+          } catch (e) {
+            console.error('❌ [BONIFICACION] Error parseando bonificaciones del procedimiento:', e);
+          }
+        }
+        
+        // Para compatibilidad con el frontend, usar la primera bonificación aplicable
+        let boni = null;
+        if (bonificaciones && bonificaciones.length > 0) {
+          // Buscar la primera bonificación aplicable con la cantidad actual
+          const bonificacionAplicable = bonificaciones.find(b => b.Aplicable === true);
+          if (bonificacionAplicable) {
+            boni = {
+              Codproducto: bonificacionAplicable.CodBoni,
+              Factor: bonificacionAplicable.Factor,
+              CodBoni: bonificacionAplicable.CodBoni,
+              Cantidad: bonificacionAplicable.Cantidad
+            };
+            console.log(`✅ [BONIFICACION] Bonificación aplicable encontrada: Factor ${bonificacionAplicable.Factor}`);
+          }
+        }
 
         // Log requerido por el usuario: indicar la fuente del cálculo
         console.error('[CALC-SOURCE] sp_unificado', { ruc, codpro, cantidad });
@@ -1293,6 +1314,7 @@ router.post('/producto-calculos', async (req, res) => {
               rangosCompletos: row.escalasRangos ? JSON.parse(row.escalasRangos) : null,
             },
             bonificacion: boni,
+            bonificaciones: bonificaciones, // Todas las bonificaciones disponibles
             resultado: {
               Desc1: row.Desc1,
               Desc2: row.Desc2,

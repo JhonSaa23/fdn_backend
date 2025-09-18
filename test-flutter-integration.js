@@ -1,11 +1,11 @@
 const { executeQuery } = require('./database');
 
-async function testEndpointProductos() {
+async function testFlutterIntegration() {
     try {
-        console.log('🧪 Probando endpoint /pedido_app/productos/:codpro con bonificaciones...\n');
+        console.log('🧪 Probando integración Flutter con procedimiento unificado...\n');
 
-        // Parámetros de prueba
-        const ruc = '20609210240'; // RUC real del log
+        // Parámetros de prueba (usando el producto del ejemplo: 19075)
+        const ruc = '12345678901'; // RUC de prueba
         const codpro = '19075';   // Producto del ejemplo
         const cantidad = 100;     // Cantidad de prueba
 
@@ -14,7 +14,7 @@ async function testEndpointProductos() {
         console.log(`   Producto: ${codpro}`);
         console.log(`   Cantidad: ${cantidad}\n`);
 
-        // Simular la consulta que hace el endpoint
+        // Simular la consulta que hace el endpoint /pedido_app/productos/:codpro
         const result = await executeQuery(
             'EXEC Jhon_ProductoCalculos @ruc, @codpro, @cantidad',
             { ruc, codpro, cantidad }
@@ -67,17 +67,21 @@ async function testEndpointProductos() {
                 console.log('ℹ️ No hay bonificaciones disponibles para este producto');
             }
 
-            console.log('\n✅ Endpoint funcionando correctamente!');
-            console.log('🎯 El Flutter debería recibir las bonificaciones en el campo "bonificaciones"');
+            console.log('\n✅ Integración Flutter lista!');
+            console.log('🎯 Beneficios implementados:');
+            console.log('   - Una sola consulta obtiene toda la información');
+            console.log('   - El vendedor puede elegir entre múltiples opciones de bonificación');
+            console.log('   - Información completa de stock y aplicabilidad');
+            console.log('   - Mejor rendimiento y experiencia de usuario');
 
         } else {
             console.log('❌ No se encontraron datos para el producto especificado');
         }
 
     } catch (error) {
-        console.error('❌ Error en el endpoint:', error);
+        console.error('❌ Error en la integración:', error);
     }
 }
 
 // Ejecutar la prueba
-testEndpointProductos();
+testFlutterIntegration();

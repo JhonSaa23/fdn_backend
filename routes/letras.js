@@ -4,12 +4,10 @@ const { authenticateToken } = require('../middleware/auth');
 
 const router = express.Router();
 
-console.log('🔍 [LETRAS] Rutas de letras cargadas correctamente');
 
 // Obtener letras del vendedor actual
 router.get('/', authenticateToken, async (req, res) => {
   try {
-    console.log('🔍 [LETRAS] Petición recibida:', req.url, 'User:', req.user);
     const pool = await getConnection();
     const codigoInterno = req.user.CodigoInterno;
     
