@@ -89,7 +89,6 @@ app.use(cors({
 
 // Middleware ULTRA-ROBUSTO para CORS y ngrok
 app.use((req, res, next) => {
-  console.log(`🌐 [CORS] ${req.method} ${req.path} - Origin: ${req.headers.origin || 'No origin'}`);
   
   // Headers CORS ULTRA-ROBUSTOS - SIEMPRE presentes
   res.header('Access-Control-Allow-Origin', '*'); // Permitir TODOS los orígenes
@@ -106,9 +105,7 @@ app.use((req, res, next) => {
   
   // Manejar preflight requests de forma robusta
   if (req.method === 'OPTIONS') {
-    console.log('✅ [CORS] Preflight request manejado correctamente');
-    res.status(200).end();
-    return;
+    
   }
   
   next();
@@ -125,16 +122,7 @@ app.use((req, res, next) => {
   if (req.method === 'OPTIONS' || 
       req.path.includes('/guias-canje/') || 
       req.path.includes('/api/')) {
-    console.log('🔍 [CORS DEBUG]:', {
-      method: req.method,
-      path: req.path,
-      origin: req.headers.origin,
-      userAgent: req.headers['user-agent']?.substring(0, 50) + '...',
-      ngrokHeader: req.headers['ngrok-skip-browser-warning'],
-      authorization: req.headers.authorization ? 'Present' : 'Missing',
-      contentLength: req.headers['content-length'],
-      contentType: req.headers['content-type']
-    });
+    
   }
   
   // Debug específico para insertar-detalle
