@@ -720,34 +720,46 @@ exports.insertarCabeceraGuiaCanje = async (req, res) => {
     const { docu, feca, Prov, empresa, ruc, placa, punto, destino } = req.body;
     
     try {
+        console.log('🔄 [INSERTAR CABECERA] Iniciando proceso...');
+        console.log('📋 [INSERTAR CABECERA] Datos recibidos:', { docu, feca, Prov, empresa, ruc, placa, punto, destino });
+        
+        // Validar datos requeridos
+        if (!docu || !feca || !Prov) {
+            return res.status(400).json({
+                success: false,
+                message: 'Faltan datos requeridos: docu, feca, Prov son obligatorios',
+                received: { docu, feca, Prov }
+            });
+        }
+        
         // Proporcionar valores por defecto solo si los campos están undefined, null o vacíos
         const placaValue = (placa && placa.trim() !== '') ? placa.trim() : 'DISPONIBLE';
         const puntoValue = (punto && punto.trim() !== '') ? punto.trim() : 'DISTRIBUIDORA FARMACOS DEL NORTE S.A.C.';
         const destinoValue = (destino && destino.trim() !== '') ? destino.trim() : 'DISTRIBUIDORA FARMACOS DEL NORTE S.A.C.';
+        const empresaValue = empresa || '';
+        const rucValue = ruc || '';
         
-        console.log('Datos recibidos:', { docu, feca, Prov, empresa, ruc, placa, punto, destino });
-        console.log('Datos procesados:', { docu, feca, Prov, empresa, ruc, placa: placaValue, punto: puntoValue, destino: destinoValue });
-        
-        // Primero, vamos a verificar la estructura de la tabla
-        const structureResult = await dbService.executeQuery(
-            `SELECT COLUMN_NAME, DATA_TYPE 
-             FROM INFORMATION_SCHEMA.COLUMNS 
-             WHERE TABLE_NAME = 'GuiasCanje' 
-             ORDER BY ORDINAL_POSITION`
-        );
-        console.log('Estructura de la tabla GuiasCanje:', structureResult.recordset);
+        console.log('📋 [INSERTAR CABECERA] Datos procesados:', { 
+            docu, 
+            feca, 
+            Prov, 
+            empresa: empresaValue, 
+            ruc: rucValue, 
+            placa: placaValue, 
+            punto: puntoValue, 
+            destino: destinoValue 
+        });
         
         // Verificar si la guía ya existe antes de insertar
-        console.log(`🔍 Verificando si la guía ${docu} ya existe...`);
+        console.log(`🔍 [INSERTAR CABECERA] Verificando si la guía ${docu} ya existe...`);
         const checkResult = await dbService.executeQuery(
             `SELECT NroGuia FROM GuiasCanje WHERE RTRIM(NroGuia) = @docu AND Eliminado = 0`,
-            [{ name: 'docu', type: sql.Char, value: docu.trim() }]
+            [{ name: 'docu', type: sql.NVarChar, value: docu.trim() }]
         );
         
-        console.log(`📋 Resultados de verificación: ${checkResult.recordset.length} registros encontrados`);
+        console.log(`📋 [INSERTAR CABECERA] Resultados de verificación: ${checkResult.recordset.length} registros encontrados`);
         if (checkResult.recordset.length > 0) {
-            console.log(`⚠️ La guía ${docu} ya existe en la base de datos`);
-            console.log(`📋 Guía existente:`, checkResult.recordset[0]);
+            console.log(`⚠️ [INSERTAR CABECERA] La guía ${docu} ya existe en la base de datos`);
             return res.status(400).json({ 
                 success: false, 
                 message: `La guía ${docu} ya existe en la base de datos`,
@@ -755,22 +767,42 @@ exports.insertarCabeceraGuiaCanje = async (req, res) => {
             });
         }
         
-        console.log(`✅ La guía ${docu} no existe, procediendo con la inserción...`);
+        console.log(`✅ [INSERTAR CABECERA] La guía ${docu} no existe, procediendo con la inserción...`);
+        
+        // Convertir fecha correctamente
+        let fechaValue;
+        try {
+            fechaValue = new Date(feca);
+            if (isNaN(fechaValue.getTime())) {
+                throw new Error('Fecha inválida');
+            }
+        } catch (dateError) {
+            console.error('❌ [INSERTAR CABECERA] Error al procesar fecha:', dateError);
+            return res.status(400).json({
+                success: false,
+                message: 'Fecha inválida',
+                error: dateError.message
+            });
+        }
+        
+        console.log('📅 [INSERTAR CABECERA] Fecha procesada:', fechaValue);
         
         const result = await dbService.executeQuery(
             `INSERT INTO GuiasCanje (NroGuia, Fecha, Proveedor, EmpTrans, RucTrans, Placa, PtoLlegada, Destinatario, Eliminado)
              VALUES (@docu, @feca, @Prov, @empresa, @ruc, @placa, @punto, @destino, 0)`,
             [
-                { name: 'docu', type: sql.Char, value: docu },
-                { name: 'feca', type: sql.DateTime, value: new Date(feca) },
-                { name: 'Prov', type: sql.Char, value: Prov },
-                { name: 'empresa', type: sql.NVarChar, value: empresa },
-                { name: 'ruc', type: sql.NVarChar, value: ruc },
-                { name: 'placa', type: sql.Char, value: placaValue },
+                { name: 'docu', type: sql.NVarChar, value: docu.trim() },
+                { name: 'feca', type: sql.DateTime, value: fechaValue },
+                { name: 'Prov', type: sql.NVarChar, value: Prov.trim() },
+                { name: 'empresa', type: sql.NVarChar, value: empresaValue },
+                { name: 'ruc', type: sql.NVarChar, value: rucValue },
+                { name: 'placa', type: sql.NVarChar, value: placaValue },
                 { name: 'punto', type: sql.NVarChar, value: puntoValue },
                 { name: 'destino', type: sql.NVarChar, value: destinoValue }
             ]
         );
+        
+        console.log('✅ [INSERTAR CABECERA] Inserción exitosa');
         
         res.status(200).json({ 
             success: true, 
@@ -778,13 +810,15 @@ exports.insertarCabeceraGuiaCanje = async (req, res) => {
             numero: docu
         });
     } catch (error) {
-        console.error('Error en insertarCabeceraGuiaCanje:', error);
-        console.error('Datos recibidos:', { docu, feca, Prov, empresa, ruc, placa, punto, destino });
+        console.error('❌ [INSERTAR CABECERA] Error completo:', error);
+        console.error('❌ [INSERTAR CABECERA] Datos que causaron el error:', { docu, feca, Prov, empresa, ruc, placa, punto, destino });
+        console.error('❌ [INSERTAR CABECERA] Stack trace:', error.stack);
+        
         res.status(500).json({ 
             success: false, 
             message: 'Error al insertar cabecera de guía de canje', 
             error: error.message,
-            details: error.stack
+            details: process.env.NODE_ENV === 'development' ? error.stack : undefined
         });
     }
 };
