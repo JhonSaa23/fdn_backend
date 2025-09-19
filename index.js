@@ -51,17 +51,11 @@ const io = new Server(server, {
   pingInterval: 25000
 });
 
-// Configuración CORS mejorada para ngrok y Render
+// Configuración CORS ULTRA-ROBUSTA - ACEPTA TODO
 app.use(cors({
-  origin: [
-    'https://fdn.onrender.com',
-    'http://localhost:3000',
-    'http://localhost:5173',
-    'http://127.0.0.1:3000',
-    'http://127.0.0.1:5173'
-  ],
+  origin: true, // Permitir TODOS los orígenes
   credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS', 'HEAD'],
   allowedHeaders: [
     'Content-Type', 
     'Authorization', 
@@ -70,23 +64,49 @@ app.use(cors({
     'X-Requested-With',
     'Origin',
     'Access-Control-Request-Method',
-    'Access-Control-Request-Headers'
+    'Access-Control-Request-Headers',
+    'Access-Control-Allow-Origin',
+    'Access-Control-Allow-Credentials',
+    'Access-Control-Allow-Methods',
+    'Access-Control-Allow-Headers',
+    'Cache-Control',
+    'Pragma',
+    'User-Agent',
+    'Referer'
   ],
-  exposedHeaders: ['Content-Length', 'X-Foo', 'X-Bar'],
+  exposedHeaders: [
+    'Content-Length', 
+    'X-Foo', 
+    'X-Bar',
+    'Access-Control-Allow-Origin',
+    'Access-Control-Allow-Credentials',
+    'Access-Control-Allow-Methods',
+    'Access-Control-Allow-Headers'
+  ],
   preflightContinue: false,
   optionsSuccessStatus: 200
 }));
 
-// Middleware adicional para CORS y ngrok
+// Middleware ULTRA-ROBUSTO para CORS y ngrok
 app.use((req, res, next) => {
-  // Asegurar que los headers de CORS estén siempre presentes
-  res.header('Access-Control-Allow-Origin', req.headers.origin || '*');
-  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, ngrok-skip-browser-warning, Accept, X-Requested-With, Origin');
-  res.header('Access-Control-Allow-Credentials', 'true');
+  console.log(`🌐 [CORS] ${req.method} ${req.path} - Origin: ${req.headers.origin || 'No origin'}`);
   
-  // Manejar preflight requests
+  // Headers CORS ULTRA-ROBUSTOS - SIEMPRE presentes
+  res.header('Access-Control-Allow-Origin', '*'); // Permitir TODOS los orígenes
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS, HEAD');
+  res.header('Access-Control-Allow-Headers', '*'); // Permitir TODOS los headers
+  res.header('Access-Control-Allow-Credentials', 'true');
+  res.header('Access-Control-Expose-Headers', '*');
+  res.header('Access-Control-Max-Age', '86400'); // Cache por 24 horas
+  
+  // Headers específicos para ngrok
+  res.header('ngrok-skip-browser-warning', 'true');
+  res.header('X-Frame-Options', 'SAMEORIGIN');
+  res.header('X-Content-Type-Options', 'nosniff');
+  
+  // Manejar preflight requests de forma robusta
   if (req.method === 'OPTIONS') {
+    console.log('✅ [CORS] Preflight request manejado correctamente');
     res.status(200).end();
     return;
   }
@@ -99,17 +119,36 @@ app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 app.use(cookieParser());
 
-// Middleware de debugging para ngrok y CORS
+// Middleware de debugging ULTRA-ROBUSTO para ngrok y CORS
 app.use((req, res, next) => {
-  // Debug para peticiones CORS
-  if (req.method === 'OPTIONS' || req.path.includes('/guias-canje/insertar-detalle')) {
+  // Debug para TODAS las peticiones CORS críticas
+  if (req.method === 'OPTIONS' || 
+      req.path.includes('/guias-canje/') || 
+      req.path.includes('/api/')) {
     console.log('🔍 [CORS DEBUG]:', {
       method: req.method,
       path: req.path,
       origin: req.headers.origin,
-      userAgent: req.headers['user-agent'],
+      userAgent: req.headers['user-agent']?.substring(0, 50) + '...',
       ngrokHeader: req.headers['ngrok-skip-browser-warning'],
-      authorization: req.headers.authorization ? 'Present' : 'Missing'
+      authorization: req.headers.authorization ? 'Present' : 'Missing',
+      contentLength: req.headers['content-length'],
+      contentType: req.headers['content-type']
+    });
+  }
+  
+  // Debug específico para insertar-detalle
+  if (req.path.includes('/guias-canje/insertar-detalle')) {
+    console.log('🎯 [INSERTAR-DETALLE DEBUG]:', {
+      method: req.method,
+      path: req.path,
+      origin: req.headers.origin,
+      body: req.body,
+      headers: {
+        authorization: req.headers.authorization ? 'Present' : 'Missing',
+        ngrokSkip: req.headers['ngrok-skip-browser-warning'],
+        contentType: req.headers['content-type']
+      }
     });
   }
   
@@ -301,32 +340,41 @@ if (process.env.NODE_ENV === 'production') {
   });
 }
 
-// Middleware para manejar errores específicos de ngrok
+// Middleware ULTRA-ROBUSTO para manejar errores específicos de ngrok
 app.use((req, res, next) => {
-  // Agregar headers adicionales para ngrok
+  // Agregar headers adicionales para ngrok SIEMPRE
   res.header('ngrok-skip-browser-warning', 'true');
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS, HEAD');
+  res.header('Access-Control-Allow-Headers', '*');
+  res.header('Access-Control-Allow-Credentials', 'true');
   
   // Log de todas las peticiones para debugging
-  if (process.env.NODE_ENV === 'development') {
-    console.log(`🌐 ${req.method} ${req.path} - Origin: ${req.headers.origin || 'No origin'}`);
-  }
+  console.log(`🌐 [REQUEST] ${req.method} ${req.path} - Origin: ${req.headers.origin || 'No origin'} - IP: ${req.ip}`);
   
   next();
 });
 
-// Manejador de errores global
+// Manejador de errores global ULTRA-ROBUSTO
 app.use((err, req, res, next) => {
-  console.error('Error no controlado:', err.stack);
+  console.error('❌ [ERROR] Error no controlado:', err.stack);
   
-  // Asegurar headers de CORS incluso en errores
-  res.header('Access-Control-Allow-Origin', req.headers.origin || '*');
+  // Asegurar headers de CORS ULTRA-ROBUSTOS incluso en errores
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS, HEAD');
+  res.header('Access-Control-Allow-Headers', '*');
   res.header('Access-Control-Allow-Credentials', 'true');
+  res.header('ngrok-skip-browser-warning', 'true');
   
-  res.status(500).json({
-    success: false,
-    error: 'Error interno del servidor',
-    details: process.env.NODE_ENV === 'development' ? err.message : null
-  });
+  // Asegurar que la respuesta sea válida
+  if (!res.headersSent) {
+    res.status(500).json({
+      success: false,
+      error: 'Error interno del servidor',
+      details: process.env.NODE_ENV === 'development' ? err.message : null,
+      timestamp: new Date().toISOString()
+    });
+  }
 });
 
 // Debug de conexiones socket.io
