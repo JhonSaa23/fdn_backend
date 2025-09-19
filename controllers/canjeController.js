@@ -162,11 +162,12 @@ exports.registrarGuiaCanje = async (req, res) => {
                 const stockActual = checkProducto.recordset[0].Stock;
                 console.log(`📊 Stock actual del producto ${detalle.codpro}: ${stockActual}`);
                 
-                // Verificar que hay suficiente stock
-                if (stockActual < cantidadNumerica) {
-                    console.error(`❌ Stock insuficiente para producto ${detalle.codpro}. Stock actual: ${stockActual}, Cantidad a descontar: ${cantidadNumerica}`);
-                    throw new Error(`Stock insuficiente para producto ${detalle.codpro}. Stock actual: ${stockActual}, Cantidad a descontar: ${cantidadNumerica}`);
-                }
+                // VALIDACIÓN DE STOCK DESHABILITADA - Generar guía sin validar stock
+                console.log(`⚠️ [STOCK] Validación de stock deshabilitada para ${detalle.codpro}. Stock actual: ${stockActual}, Cantidad: ${cantidadNumerica}`);
+                // if (stockActual < cantidadNumerica) {
+                //     console.error(`❌ Stock insuficiente para producto ${detalle.codpro}. Stock actual: ${stockActual}, Cantidad a descontar: ${cantidadNumerica}`);
+                //     throw new Error(`Stock insuficiente para producto ${detalle.codpro}. Stock actual: ${stockActual}, Cantidad a descontar: ${cantidadNumerica}`);
+                // }
                 
                 const resultProductos = await dbService.executeQueryInTransaction(transaction,
                     `UPDATE Productos SET Stock = Stock - @canti WHERE Codpro = @codigo`,
@@ -209,11 +210,12 @@ exports.registrarGuiaCanje = async (req, res) => {
                 const saldoActual = checkSaldo.recordset[0].Saldo;
                 console.log(`📊 Saldo actual del producto ${detalle.codpro}, lote ${detalle.lote}, almacén 3: ${saldoActual}`);
                 
-                // Verificar que hay suficiente saldo
-                if (saldoActual < cantidadNumerica) {
-                    console.error(`❌ Saldo insuficiente para producto ${detalle.codpro}, lote ${detalle.lote}. Saldo actual: ${saldoActual}, Cantidad a descontar: ${cantidadNumerica}`);
-                    throw new Error(`Saldo insuficiente para producto ${detalle.codpro}, lote ${detalle.lote}. Saldo actual: ${saldoActual}, Cantidad a descontar: ${cantidadNumerica}`);
-                }
+                // VALIDACIÓN DE SALDO DE LOTE DESHABILITADA - Generar guía sin validar saldo de lote
+                console.log(`⚠️ [SALDO-LOTE] Validación de saldo de lote deshabilitada para ${detalle.codpro}, lote ${detalle.lote}. Saldo actual: ${saldoActual}, Cantidad: ${cantidadNumerica}`);
+                // if (saldoActual < cantidadNumerica) {
+                //     console.error(`❌ Saldo insuficiente para producto ${detalle.codpro}, lote ${detalle.lote}. Saldo actual: ${saldoActual}, Cantidad a descontar: ${cantidadNumerica}`);
+                //     throw new Error(`Saldo insuficiente para producto ${detalle.codpro}, lote ${detalle.lote}. Saldo actual: ${saldoActual}, Cantidad a descontar: ${cantidadNumerica}`);
+                // }
                 
                 const resultSaldos = await dbService.executeQueryInTransaction(transaction,
                     `UPDATE Saldos SET Saldo = Saldo - @canti WHERE Codpro = @codigo AND Almacen = 3 AND Lote = @lote`,
@@ -1004,11 +1006,12 @@ exports.insertarDetalleGuiaCanje = async (req, res) => {
             const stockActual = checkProducto.recordset[0].Stock;
             console.log(`📊 Stock actual del producto ${idpro}: ${stockActual}`);
             
-            // Verificar que hay suficiente stock
-            if (stockActual < cantidadNumerica) {
-                console.error(`❌ Stock insuficiente para producto ${idpro}. Stock actual: ${stockActual}, Cantidad a descontar: ${cantidadNumerica}`);
-                throw new Error(`Stock insuficiente para producto ${idpro}. Stock actual: ${stockActual}, Cantidad a descontar: ${cantidadNumerica}`);
-            }
+            // VALIDACIÓN DE STOCK DESHABILITADA - Generar guía sin validar stock
+            console.log(`⚠️ [STOCK] Validación de stock deshabilitada para ${idpro}. Stock actual: ${stockActual}, Cantidad: ${cantidadNumerica}`);
+            // if (stockActual < cantidadNumerica) {
+            //     console.error(`❌ Stock insuficiente para producto ${idpro}. Stock actual: ${stockActual}, Cantidad a descontar: ${cantidadNumerica}`);
+            //     throw new Error(`Stock insuficiente para producto ${idpro}. Stock actual: ${stockActual}, Cantidad a descontar: ${cantidadNumerica}`);
+            // }
             
             const resultProductos = await dbService.executeQuery(
                 `UPDATE Productos SET Stock = Stock - @canti WHERE Codpro = @codigo`,
@@ -1051,11 +1054,12 @@ exports.insertarDetalleGuiaCanje = async (req, res) => {
             const saldoActual = checkSaldo.recordset[0].Saldo;
             console.log(`📊 Saldo actual del producto ${idpro}, lote ${lote}, almacén 3: ${saldoActual}`);
             
-            // Verificar que hay suficiente saldo
-            if (saldoActual < cantidadNumerica) {
-                console.error(`❌ Saldo insuficiente para producto ${idpro}, lote ${lote}. Saldo actual: ${saldoActual}, Cantidad a descontar: ${cantidadNumerica}`);
-                throw new Error(`Saldo insuficiente para producto ${idpro}, lote ${lote}. Saldo actual: ${saldoActual}, Cantidad a descontar: ${cantidadNumerica}`);
-            }
+            // VALIDACIÓN DE SALDO DE LOTE DESHABILITADA - Generar guía sin validar saldo de lote
+            console.log(`⚠️ [SALDO-LOTE] Validación de saldo de lote deshabilitada para ${idpro}, lote ${lote}. Saldo actual: ${saldoActual}, Cantidad: ${cantidadNumerica}`);
+            // if (saldoActual < cantidadNumerica) {
+            //     console.error(`❌ Saldo insuficiente para producto ${idpro}, lote ${lote}. Saldo actual: ${saldoActual}, Cantidad a descontar: ${cantidadNumerica}`);
+            //     throw new Error(`Saldo insuficiente para producto ${idpro}, lote ${lote}. Saldo actual: ${saldoActual}, Cantidad a descontar: ${cantidadNumerica}`);
+            // }
             
             const resultSaldos = await dbService.executeQuery(
                 `UPDATE Saldos SET Saldo = Saldo - @canti WHERE Codpro = @codigo AND Almacen = 3 AND Lote = @lote`,

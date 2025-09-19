@@ -955,9 +955,81 @@ router.get('/productos/:codpro', async (req, res) => {
   try {
     const pool = await getConnection();
     const { codpro } = req.params;
+    const { ruc, cantidad = 1 } = req.query; // Parámetros opcionales para el procedimiento
     
-    console.log(`🔍 Buscando producto específico: ${codpro}`);
+    console.log(`🔍 Buscando producto específico: ${codpro} con RUC: ${ruc}, cantidad: ${cantidad}`);
     
+    // Si tenemos RUC, usar el procedimiento unificado
+    if (ruc) {
+      try {
+        const sp = await pool.request()
+          .input('ruc', ruc)
+          .input('codpro', codpro)
+          .input('cantidad', cantidad)
+          .execute('Jhon_ProductoCalculos');
+
+        const row = sp.recordset?.[0];
+        if (row) {
+          // Usar bonificaciones del procedimiento unificado
+          let bonificaciones = null;
+          if (row.bonificaciones) {
+            try {
+              bonificaciones = JSON.parse(row.bonificaciones);
+              console.log(`✅ [BONIFICACION] Bonificaciones del procedimiento: ${bonificaciones.length} opciones`);
+            } catch (e) {
+              console.error('❌ [BONIFICACION] Error parseando bonificaciones del procedimiento:', e);
+            }
+          }
+          
+          // Para compatibilidad con el frontend, usar la primera bonificación aplicable
+          let boni = null;
+          if (bonificaciones && bonificaciones.length > 0) {
+            const bonificacionAplicable = bonificaciones.find(b => b.Aplicable === true);
+            if (bonificacionAplicable) {
+              boni = {
+                Codproducto: bonificacionAplicable.CodBoni,
+                Factor: bonificacionAplicable.Factor,
+                CodBoni: bonificacionAplicable.CodBoni,
+                Cantidad: bonificacionAplicable.Cantidad
+              };
+              console.log(`✅ [BONIFICACION] Bonificación aplicable encontrada: Factor ${bonificacionAplicable.Factor}`);
+            }
+          }
+
+          console.log(`✅ Producto encontrado con procedimiento unificado: ${row.nombre}`);
+          return res.json({
+            success: true,
+            data: {
+              codpro: row.codpro,
+              nombre_producto: row.nombre,
+              Pventa: row.Pventa,
+              Desc1: row.Desc1,
+              Desc2: row.Desc2,
+              Desc3: row.Desc3,
+              afecto: row.afecto,
+              saldo_total: 0, // El procedimiento no incluye saldo, usar consulta separada si es necesario
+              // Datos adicionales del procedimiento
+              tipificacion: row.tipificacion,
+              rangosTipificacion: row.tipifRangos ? JSON.parse(row.tipifRangos) : null,
+              escalas: {
+                Rango1: row.R1, Rango2: row.R2, Rango3: row.R3, Rango4: row.R4, Rango5: row.R5,
+                rangoUsado: row.escalaRango,
+                rangosCompletos: row.escalasRangos ? JSON.parse(row.escalasRangos) : null,
+              },
+              bonificacion: boni,
+              bonificaciones: bonificaciones, // Todas las bonificaciones disponibles
+            },
+            found: true,
+            source: 'sp_unificado'
+          });
+        }
+      } catch (e) {
+        console.error('⚠️ [UNIFICADO] SP unificado falló, usando consulta básica:', e.message);
+        // Continúa con la consulta básica
+      }
+    }
+    
+    // Consulta básica (fallback o cuando no hay RUC)
     const query = `
       SELECT TOP (1)
           s.codpro,
@@ -992,11 +1064,12 @@ router.get('/productos/:codpro', async (req, res) => {
       .query(query);
     
     if (result.recordset.length > 0) {
-      console.log(`✅ Producto encontrado: ${result.recordset[0].nombre_producto}`);
+      console.log(`✅ Producto encontrado con consulta básica: ${result.recordset[0].nombre_producto}`);
       res.json({
         success: true,
         data: result.recordset[0],
-        found: true
+        found: true,
+        source: 'consulta_basica'
       });
     } else {
       console.log(`❌ Producto no encontrado: ${codpro}`);
