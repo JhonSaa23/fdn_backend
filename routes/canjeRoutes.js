@@ -16,6 +16,7 @@ router.get('/guias-canje/:nroGuia/detalles', canjeController.obtenerDetallesGuia
 router.post('/guias-canje', canjeController.registrarGuiaCanje);
 router.post('/guias-canje/insertar-cabecera', canjeController.insertarCabeceraGuiaCanje);
 router.post('/guias-canje/insertar-detalle', canjeController.insertarDetalleGuiaCanje);
+router.post('/guias-canje/insertar-detalles-lote', canjeController.insertarDetallesLoteGuiaCanje);
 router.post('/guias-canje/actualizar-contador-devolucion', canjeController.actualizarContadorDevolucion);
 router.delete('/guias-canje/:nroGuia', canjeController.eliminarGuiaCanje);
 router.delete('/guias-canje/:nroGuia/completa', canjeController.eliminarGuiaCanjeCompleta);

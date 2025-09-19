@@ -1,6 +1,9 @@
 const dbService = require('../services/dbService');
 const sql = require('mssql');
 
+// Función auxiliar para delay
+const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
 // BOTON BUSCAR (Listar Guías de Canje)
 exports.listarGuiasCanje = async (req, res) => {
     try {
@@ -823,7 +826,133 @@ exports.insertarCabeceraGuiaCanje = async (req, res) => {
     }
 };
 
-// Insertar detalle de guía de canje
+// Insertar múltiples detalles de guía de canje por lotes
+exports.insertarDetallesLoteGuiaCanje = async (req, res) => {
+    const { num, productos, delayEntreProductos = 2000, delayEntreLotes = 5000 } = req.body;
+    
+    try {
+        console.log('🚀 [LOTE] Iniciando procesamiento por lotes...');
+        console.log(`📋 [LOTE] Total productos: ${productos.length}`);
+        console.log(`⏱️ [LOTE] Delay entre productos: ${delayEntreProductos}ms`);
+        console.log(`⏱️ [LOTE] Delay entre lotes: ${delayEntreLotes}ms`);
+        
+        if (!num || !productos || !Array.isArray(productos) || productos.length === 0) {
+            return res.status(400).json({
+                success: false,
+                message: 'Datos inválidos: num y productos (array) son requeridos'
+            });
+        }
+        
+        const TAMANO_LOTE = 20;
+        const lotes = [];
+        
+        // Dividir productos en lotes de 20
+        for (let i = 0; i < productos.length; i += TAMANO_LOTE) {
+            lotes.push(productos.slice(i, i + TAMANO_LOTE));
+        }
+        
+        console.log(`📦 [LOTE] Productos divididos en ${lotes.length} lotes de máximo ${TAMANO_LOTE} productos`);
+        
+        const resultados = {
+            totalProductos: productos.length,
+            totalLotes: lotes.length,
+            productosProcesados: 0,
+            productosExitosos: 0,
+            productosConError: 0,
+            errores: [],
+            lotes: []
+        };
+        
+        // Procesar cada lote
+        for (let i = 0; i < lotes.length; i++) {
+            const lote = lotes[i];
+            console.log(`🔄 [LOTE ${i + 1}/${lotes.length}] Procesando ${lote.length} productos...`);
+            
+            const resultadoLote = {
+                numeroLote: i + 1,
+                productosEnLote: lote.length,
+                productosProcesados: 0,
+                productosExitosos: 0,
+                productosConError: 0,
+                errores: []
+            };
+            
+            // Procesar cada producto en el lote
+            for (let j = 0; j < lote.length; j++) {
+                const producto = lote[j];
+                console.log(`📦 [LOTE ${i + 1}] Producto ${j + 1}/${lote.length}: ${producto.idpro}`);
+                
+                try {
+                    const resultado = await insertarDetalleIndividual({
+                        num,
+                        idpro: producto.idpro,
+                        lote: producto.lote,
+                        vence: producto.vence,
+                        cantidad: producto.cantidad,
+                        guia: producto.guia || 'SIN REF',
+                        referencia: producto.referencia || 'SIN REF',
+                        tipodoc: producto.tipodoc || 'NN'
+                    });
+                    
+                    resultadoLote.productosExitosos++;
+                    resultados.productosExitosos++;
+                    
+                } catch (error) {
+                    console.error(`❌ [LOTE ${i + 1}] Error en producto ${j + 1}:`, error.message);
+                    resultadoLote.productosConError++;
+                    resultadoLote.errores.push({
+                        producto: j + 1,
+                        idpro: producto.idpro,
+                        error: error.message
+                    });
+                    resultados.productosConError++;
+                    resultados.errores.push({
+                        lote: i + 1,
+                        producto: j + 1,
+                        idpro: producto.idpro,
+                        error: error.message
+                    });
+                }
+                
+                resultadoLote.productosProcesados++;
+                resultados.productosProcesados++;
+                
+                // Delay entre productos (excepto el último del lote)
+                if (j < lote.length - 1) {
+                    console.log(`⏱️ [LOTE ${i + 1}] Esperando ${delayEntreProductos}ms...`);
+                    await delay(delayEntreProductos);
+                }
+            }
+            
+            resultados.lotes.push(resultadoLote);
+            console.log(`✅ [LOTE ${i + 1}] Completado: ${resultadoLote.productosExitosos}/${resultadoLote.productosProcesados} exitosos`);
+            
+            // Delay entre lotes (excepto el último lote)
+            if (i < lotes.length - 1) {
+                console.log(`⏱️ [LOTES] Esperando ${delayEntreLotes}ms entre lotes...`);
+                await delay(delayEntreLotes);
+            }
+        }
+        
+        console.log(`🎉 [LOTE] Procesamiento completo: ${resultados.productosExitosos}/${resultados.productosProcesados} productos exitosos`);
+        
+        res.status(200).json({
+            success: true,
+            message: 'Procesamiento por lotes completado',
+            resultados
+        });
+        
+    } catch (error) {
+        console.error('❌ [LOTE] Error en procesamiento por lotes:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error en procesamiento por lotes',
+            error: error.message
+        });
+    }
+};
+
+// Insertar detalle de guía de canje (individual - manteniendo compatibilidad)
 exports.insertarDetalleGuiaCanje = async (req, res) => {
     const { num, idpro, lote, vence, cantidad, guia, referencia, tipodoc } = req.body;
     
@@ -1108,4 +1237,50 @@ exports.actualizarUltimoNumeroCabGuia = async (req, res) => {
             error: error.message
         });
     }
-}; 
+};
+
+// Función auxiliar para insertar un detalle individual
+async function insertarDetalleIndividual({ num, idpro, lote, vence, cantidad, guia, referencia, tipodoc }) {
+    try {
+        console.log(`🔄 [INDIVIDUAL] Insertando producto: ${idpro}`);
+        
+        // Validar y convertir la cantidad a número
+        const cantidadNumerica = parseFloat(cantidad);
+        if (isNaN(cantidadNumerica) || cantidadNumerica <= 0) {
+            throw new Error(`Cantidad inválida: ${cantidad}`);
+        }
+        
+        // Verificar si el producto existe
+        const productoExiste = await dbService.executeQuery(
+            `SELECT Codpro FROM Productos WHERE Codpro = @codpro`,
+            [{ name: 'codpro', type: sql.NVarChar, value: idpro.trim() }]
+        );
+        
+        if (productoExiste.recordset.length === 0) {
+            throw new Error(`Producto no encontrado: ${idpro}`);
+        }
+        
+        // Insertar detalle
+        const result = await dbService.executeQuery(
+            `INSERT INTO DetaguiaCanje (NroGuia, codpro, lote, Vencimiento, Cantidad, GuiaDevo, Referencia, Tipodoc)
+             VALUES (@num, @idpro, @lote, @vence, @cantidad, @guia, @referencia, @tipodoc)`,
+            [
+                { name: 'num', type: sql.NVarChar, value: num.trim() },
+                { name: 'idpro', type: sql.NVarChar, value: idpro.trim() },
+                { name: 'lote', type: sql.NVarChar, value: lote.trim() },
+                { name: 'vence', type: sql.DateTime, value: new Date(vence) },
+                { name: 'cantidad', type: sql.Decimal(18, 2), value: cantidadNumerica },
+                { name: 'guia', type: sql.NVarChar, value: guia.trim() },
+                { name: 'referencia', type: sql.NVarChar, value: referencia.trim() },
+                { name: 'tipodoc', type: sql.NVarChar, value: tipodoc.trim() }
+            ]
+        );
+        
+        console.log(`✅ [INDIVIDUAL] Producto insertado: ${idpro}`);
+        return { success: true, producto: idpro };
+        
+    } catch (error) {
+        console.error(`❌ [INDIVIDUAL] Error insertando producto ${idpro}:`, error.message);
+        throw error;
+    }
+} 
