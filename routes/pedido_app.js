@@ -885,7 +885,7 @@ router.get('/productos', async (req, res) => {
       JOIN
           productos p ON s.codpro = p.codpro
       WHERE
-          s.almacen <> '3'
+          s.almacen <> '3' and p.Eliminado = 0
     `;
     
     // Agregar filtro de búsqueda si se proporciona
