@@ -70,17 +70,17 @@ router.get('/estadisticas', authenticateToken, async (req, res) => {
   }
 });
 
-// Obtener estadísticas de letras con filtros por fechas
+// Obtener estadísticas de letras con filtros por mes y año
 router.get('/estadisticas/filtradas', authenticateToken, async (req, res) => {
   try {
     const pool = await getConnection();
     const codigoInterno = req.user.CodigoInterno;
-    const { fechaInicio, fechaFin, estado } = req.query;
+    const { mes, año, estado } = req.query;
     
     const result = await pool.request()
       .input('CodigoInterno', codigoInterno)
-      .input('FechaInicio', fechaInicio || null)
-      .input('FechaFin', fechaFin || null)
+      .input('Mes', mes ? parseInt(mes) : null)
+      .input('Año', año ? parseInt(año) : null)
       .input('Estado', estado ? parseInt(estado) : null)
       .execute('sp_EstadisticasLetrasVendedorFiltradas');
     
@@ -89,8 +89,8 @@ router.get('/estadisticas/filtradas', authenticateToken, async (req, res) => {
         success: true,
         data: result.recordset[0],
         filtros: {
-          fechaInicio,
-          fechaFin,
+          mes,
+          año,
           estado
         }
       });
@@ -110,8 +110,8 @@ router.get('/estadisticas/filtradas', authenticateToken, async (req, res) => {
           FechaVencimientoMasReciente: null
         },
         filtros: {
-          fechaInicio,
-          fechaFin,
+          mes,
+          año,
           estado
         }
       });
@@ -131,12 +131,12 @@ router.get('/filtradas', authenticateToken, async (req, res) => {
   try {
     const pool = await getConnection();
     const codigoInterno = req.user.CodigoInterno;
-    const { estado, fechaInicio, fechaFin, cliente } = req.query;
+    const { estado, mes, año, cliente } = req.query;
     
     const result = await pool.request()
       .input('CodigoInterno', codigoInterno)
-      .input('FechaInicio', fechaInicio || null)
-      .input('FechaFin', fechaFin || null)
+      .input('Mes', mes ? parseInt(mes) : null)
+      .input('Año', año ? parseInt(año) : null)
       .input('Estado', estado ? parseInt(estado) : null)
       .input('Cliente', cliente || null)
       .execute('sp_LetrasPorVendedorFiltradas');
@@ -147,8 +147,8 @@ router.get('/filtradas', authenticateToken, async (req, res) => {
       total: result.recordset.length,
       filtros: {
         estado,
-        fechaInicio,
-        fechaFin,
+        mes,
+        año,
         cliente
       }
     });

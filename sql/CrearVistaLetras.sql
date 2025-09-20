@@ -161,11 +161,11 @@ END;
 
 GO
 
--- 6. Crear procedimiento para letras con filtros por fechas
+-- 6. Crear procedimiento para letras con filtros por mes y año
 CREATE PROCEDURE [dbo].[sp_LetrasPorVendedorFiltradas]
     @CodigoInterno VARCHAR(10),
-    @FechaInicio DATE = NULL,
-    @FechaFin DATE = NULL,
+    @Mes INT = NULL,
+    @Año INT = NULL,
     @Estado INT = NULL,
     @Cliente VARCHAR(100) = NULL
 AS
@@ -197,8 +197,8 @@ BEGIN
         DiasParaVencer
     FROM VistaLetrasVendedor
     WHERE Vendedor = @CodigoInterno
-    AND (@FechaInicio IS NULL OR FecIni >= @FechaInicio)
-    AND (@FechaFin IS NULL OR FecVen <= @FechaFin)
+    AND (@Mes IS NULL OR MONTH(FecIni) = @Mes)
+    AND (@Año IS NULL OR YEAR(FecIni) = @Año)
     AND (@Estado IS NULL OR Estado = @Estado)
     AND (@Cliente IS NULL OR Codclie LIKE '%' + @Cliente + '%' OR NombreCliente LIKE '%' + @Cliente + '%')
     ORDER BY FecVen DESC, Numero DESC;
@@ -206,11 +206,11 @@ END;
 
 GO
 
--- 7. Crear procedimiento para estadísticas con filtros por fechas
+-- 7. Crear procedimiento para estadísticas con filtros por mes y año
 CREATE PROCEDURE [dbo].[sp_EstadisticasLetrasVendedorFiltradas]
     @CodigoInterno VARCHAR(10),
-    @FechaInicio DATE = NULL,
-    @FechaFin DATE = NULL,
+    @Mes INT = NULL,
+    @Año INT = NULL,
     @Estado INT = NULL
 AS
 BEGIN
@@ -229,8 +229,8 @@ BEGIN
         MAX(FecVen) AS FechaVencimientoMasReciente
     FROM VistaLetrasVendedor
     WHERE Vendedor = @CodigoInterno
-    AND (@FechaInicio IS NULL OR FecIni >= @FechaInicio)
-    AND (@FechaFin IS NULL OR FecVen <= @FechaFin)
+    AND (@Mes IS NULL OR MONTH(FecIni) = @Mes)
+    AND (@Año IS NULL OR YEAR(FecIni) = @Año)
     AND (@Estado IS NULL OR Estado = @Estado);
 END;
 
