@@ -13,7 +13,7 @@ const ensureString = (value) => {
 // ===== GET: obtener todos los clientes con filtros dinámicos y paginación =====
 router.get('/', async (req, res) => {
   try {
-    const { codlab, cliente, tipificacion, activo, page = 1, limit = 40 } = req.query;
+    const { codlab, cliente, tipificacion, activo, vendedor, page = 1, limit = 40 } = req.query;
 
     // Calcular offset para paginación
     const pageNum = parseInt(page);
@@ -41,6 +41,9 @@ router.get('/', async (req, res) => {
         v.en_d,
         c.Activo,
         c.Razon as razon,
+        c.Vendedor as vendedor,
+        e.CodEmp as codigo_vendedor,
+        e.Nombre as nombre_vendedor,
         CASE 
           WHEN c.Activo = 1 THEN 'Activo'
           WHEN c.Activo = 0 THEN 'Inactivo'
@@ -48,6 +51,7 @@ router.get('/', async (req, res) => {
         END AS EstadoDescripcion
       FROM vw_ClientesTipificacion AS v
       LEFT JOIN clientes AS c ON v.cliente = c.Documento
+      LEFT JOIN empleados AS e ON c.Vendedor = e.CodEmp
       WHERE 1=1
     `;
 
@@ -68,6 +72,10 @@ router.get('/', async (req, res) => {
       baseQuery += ' AND c.Activo = @activo';
       params.activo = parseInt(activo);
     }
+    if (vendedor) {
+      baseQuery += ' AND e.CodEmp = @vendedor';
+      params.vendedor = ensureString(vendedor);
+    }
 
     // Query para obtener el total de registros
     const countQuery = `
@@ -86,11 +94,13 @@ router.get('/', async (req, res) => {
       SELECT COUNT(*) as total
       FROM vw_ClientesTipificacion AS v
       LEFT JOIN clientes AS c ON v.cliente = c.Documento
+      LEFT JOIN empleados AS e ON c.Vendedor = e.CodEmp
       WHERE 1=1
       ${codlab ? ' AND v.codlab = @codlab' : ''}
       ${cliente ? ' AND v.cliente = @cliente' : ''}
       ${tipificacion ? ' AND v.tipificacion = @tipificacion' : ''}
       ${activo !== undefined && activo !== '' ? ' AND c.Activo = @activo' : ''}
+      ${vendedor ? ' AND e.CodEmp = @vendedor' : ''}
     `;
 
     // Query con paginación
@@ -976,6 +986,41 @@ router.put('/tipificaciones/:tipificacion/:codlab', async (req, res) => {
 
   } catch (error) {
     console.error('Error actualizando tipificación:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error interno del servidor',
+      error: error.message
+    });
+  }
+});
+
+// Endpoint para obtener vendedores (empleados) para el filtro
+router.get('/vendedores', async (req, res) => {
+  try {
+    const pool = await getConnection();
+
+    const query = `
+      SELECT DISTINCT
+        e.CodEmp as codemp,
+        e.Nombre as nombre
+      FROM empleados e
+      INNER JOIN clientes c ON e.CodEmp = c.Vendedor
+      WHERE e.CodEmp IS NOT NULL 
+        AND e.Nombre IS NOT NULL
+        AND e.CodEmp != ''
+        AND e.Nombre != ''
+      ORDER BY e.CodEmp
+    `;
+    
+    const result = await pool.request().query(query);
+
+    res.json({
+      success: true,
+      data: result.recordset
+    });
+
+  } catch (error) {
+    console.error('Error obteniendo vendedores:', error);
     res.status(500).json({
       success: false,
       message: 'Error interno del servidor',

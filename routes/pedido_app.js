@@ -11,6 +11,10 @@ const tipificacionCache = new Map();
 const descuentoCache = new Map();
 const CACHE_EXPIRY = 5 * 60 * 1000; // 5 minutos
 
+// Cache global de clientes por vendedor (carga completa)
+const clientesCompletosCache = new Map();
+const CLIENTES_CACHE_EXPIRY = 30 * 60 * 1000; // 30 minutos
+
 // Función helper para cache con TTL
 function getFromCache(cache, key, ttl = 300000) { // 5 minutos por defecto
   const item = cache.get(key);
@@ -41,14 +45,102 @@ const cleanExpiredCache = () => {
 // Limpiar cache cada 2 minutos
 setInterval(cleanExpiredCache, 2 * 60 * 1000);
 
-// Buscar clientes con optimizaciones
+// Cargar todos los clientes del vendedor en cache (UNA SOLA VEZ)
+router.get('/clientes/load', async (req, res) => {
+  try {
+    // Obtener el CodigoInterno del usuario logueado desde el token
+    const authHeader = req.headers.authorization;
+    
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      console.log('❌ [CLIENTES-LOAD] Error: Token de autorización requerido');
+      return res.status(401).json({
+        success: false,
+        error: 'Token de autorización requerido'
+      });
+    }
+    
+    const token = authHeader.substring(7);
+    
+    // Decodificar el token para obtener el CodigoInterno
+    let codigoInterno;
+    try {
+      const jwtSecret = process.env.JWT_SECRET || 'tu_secret_key';
+      const decoded = jwt.verify(token, jwtSecret);
+      codigoInterno = decoded.CodigoInterno;
+      
+      if (!codigoInterno) {
+        console.log('❌ [CLIENTES-LOAD] Error: CodigoInterno no encontrado en el token');
+        return res.status(401).json({
+          success: false,
+          error: 'CodigoInterno no encontrado en el token'
+        });
+      }
+    } catch (jwtError) {
+      console.log('❌ [CLIENTES-LOAD] Error decodificando token:', jwtError.message);
+      return res.status(401).json({
+        success: false,
+        error: 'Token inválido',
+        details: jwtError.message
+      });
+    }
+    
+    // Verificar si ya está en cache
+    const cacheKey = `clientes_completos_${codigoInterno}`;
+    if (clientesCompletosCache.has(cacheKey)) {
+      const cached = clientesCompletosCache.get(cacheKey);
+      if (Date.now() - cached.timestamp < CLIENTES_CACHE_EXPIRY) {
+        console.log(`✅ [CLIENTES-LOAD] Clientes ya cargados en cache: ${cached.data.length}`);
+        return res.json({
+          success: true,
+          data: cached.data,
+          total: cached.data.length,
+          cached: true,
+          message: 'Clientes ya cargados en cache'
+        });
+      }
+    }
+    
+    // Cargar desde stored procedure
+    const pool = await getConnection();
+    console.log(`🔄 [CLIENTES-LOAD] Cargando clientes para vendedor: ${codigoInterno}`);
+    
+    const result = await pool.request()
+      .input('CodigoInterno', codigoInterno)
+      .execute('ClientesPorVendedor');
+    
+    const clientes = result.recordset;
+    
+    // Guardar en cache
+    clientesCompletosCache.set(cacheKey, {
+      data: clientes,
+      timestamp: Date.now()
+    });
+    
+    console.log(`✅ [CLIENTES-LOAD] Clientes cargados exitosamente: ${clientes.length}`);
+    
+    res.json({
+      success: true,
+      data: clientes,
+      total: clientes.length,
+      cached: false,
+      message: 'Clientes cargados exitosamente'
+    });
+
+  } catch (error) {
+    console.error('❌ [CLIENTES-LOAD] Error cargando clientes:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Error al cargar clientes',
+      details: error.message
+    });
+  }
+});
+
+// Buscar clientes (FILTRADO EN MEMORIA - INSTANTÁNEO)
 router.get('/clientes', async (req, res) => {
   try {
-    const pool = await getConnection();
-    const { q: query, limit = 20 } = req.query;
-    
-    // Permitir límites más altos para carga completa - SIN LÍMITE MÁXIMO
-    const maxLimit = parseInt(limit) || 20; // Sin límite máximo para traer TODOS los datos
+    const { q: query, limit = 50 } = req.query;
+    const maxLimit = parseInt(limit) || 50;
     
     // Obtener el CodigoInterno del usuario logueado desde el token
     const authHeader = req.headers.authorization;
@@ -86,114 +178,65 @@ router.get('/clientes', async (req, res) => {
       });
     }
     
-    // Si no hay query, devolver clientes recientes del vendedor
-    if (!query || query.trim() === '') {
-    const defaultQuery = `
-      SELECT TOP (@limit) 
-        Codclie, 
-        Razon, 
-        Documento,
-        Direccion
-      FROM clientes 
-      WHERE Razon IS NOT NULL 
-        AND Razon != '' 
-        AND vendedor = @codigoInterno
-      ORDER BY Codclie DESC
-    `;
-      
-      const result = await pool.request()
-        .input('limit', maxLimit)
-        .input('codigoInterno', codigoInterno)
-        .query(defaultQuery);
-      
-      
-      return res.json({
-        success: true,
-        data: result.recordset,
-        total: result.recordset.length,
-        cached: false
+    // Obtener clientes desde cache
+    const cacheKey = `clientes_completos_${codigoInterno}`;
+    const cached = clientesCompletosCache.get(cacheKey);
+    
+    if (!cached || Date.now() - cached.timestamp > CLIENTES_CACHE_EXPIRY) {
+      console.log('⚠️ [CLIENTES] Cache expirado o no existe, necesita cargar clientes primero');
+      return res.status(400).json({
+        success: false,
+        error: 'Clientes no cargados en cache. Use /clientes/load primero',
+        message: 'Debe cargar los clientes primero usando el endpoint /clientes/load'
       });
     }
     
-    const searchTerm = query.trim().toLowerCase();
-    const cacheKey = `clientes_${searchTerm}_${maxLimit}_${codigoInterno}`;
+    let clientes = cached.data;
     
-    // Verificar cache primero
-    if (clientCache.has(cacheKey)) {
-      const cached = clientCache.get(cacheKey);
-      if (Date.now() - cached.timestamp < CACHE_EXPIRY) {
-        return res.json({
-          success: true,
-          data: cached.data,
-          total: cached.data.length,
-          cached: true
-        });
-      }
+    // Si no hay query, devolver clientes recientes
+    if (!query || query.trim() === '') {
+      const clientesRecientes = clientes.slice(0, maxLimit);
+      return res.json({
+        success: true,
+        data: clientesRecientes,
+        total: clientesRecientes.length,
+        cached: true,
+        source: 'memory_cache'
+      });
     }
     
+    // Filtrar en memoria (INSTANTÁNEO)
+    const searchTerm = query.trim().toLowerCase();
+    console.log(`🔍 [CLIENTES] Filtrando en memoria: "${searchTerm}"`);
     
-    // Query optimizada con índices y filtro por vendedor
-    const searchQuery = `
-      SELECT TOP (@limit) 
-        Codclie, 
-        Razon, 
-        Documento,
-        Direccion
-      FROM clientes 
-      WHERE (
-        LOWER(Razon) LIKE @searchTerm 
-        OR LOWER(Documento) LIKE @searchTerm
-        OR LOWER(Direccion) LIKE @searchTerm
-        OR Codclie LIKE @searchTerm
-      )
-      AND Razon IS NOT NULL 
-      AND Razon != ''
-      AND vendedor = @codigoInterno
-      ORDER BY 
-        CASE 
-          WHEN LOWER(Razon) = @exactMatch THEN 1
-          WHEN LOWER(Razon) LIKE @startsWith THEN 2
-          WHEN LOWER(Razon) LIKE @contains THEN 3
-          WHEN LOWER(Documento) LIKE @searchTerm THEN 4
-          WHEN LOWER(Direccion) LIKE @searchTerm THEN 5
-          ELSE 6
-        END,
-        Razon
-    `;
+    const clientesFiltrados = clientes.filter(cliente => 
+      cliente.Razon.toLowerCase().includes(searchTerm) ||
+      cliente.Codclie.toLowerCase().includes(searchTerm) ||
+      cliente.Documento.toLowerCase().includes(searchTerm) ||
+      cliente.Direccion.toLowerCase().includes(searchTerm)
+    );
     
-    const result = await pool.request()
-      .input('limit', maxLimit)
-      .input('searchTerm', `%${searchTerm}%`)
-      .input('exactMatch', searchTerm)
-      .input('startsWith', `${searchTerm}%`)
-      .input('contains', `%${searchTerm}%`)
-      .input('codigoInterno', codigoInterno)
-      .query(searchQuery);
+    // Aplicar límite
+    const resultado = clientesFiltrados.slice(0, maxLimit);
     
-    const clientes = result.recordset;
-    
-    // Guardar en cache
-    clientCache.set(cacheKey, {
-      data: clientes,
-      timestamp: Date.now()
-    });
-    
+    console.log(`✅ [CLIENTES] Filtrado completado: ${resultado.length} de ${clientes.length} clientes`);
     
     res.json({
       success: true,
-      data: clientes,
-      total: clientes.length,
-      cached: false,
+      data: resultado,
+      total: resultado.length,
+      totalDisponibles: clientes.length,
+      cached: true,
+      source: 'memory_filter',
       searchTerm: searchTerm,
-      vendedor: codigoInterno,
-      limit: maxLimit
+      vendedor: codigoInterno
     });
 
   } catch (error) {
-    console.error('Error al buscar clientes:', error);
+    console.error('❌ [CLIENTES] Error filtrando clientes:', error);
     res.status(500).json({
       success: false,
-      error: 'Error al buscar clientes',
+      error: 'Error al filtrar clientes',
       details: error.message
     });
   }
@@ -343,11 +386,25 @@ router.get('/clientes/:codclie/pedidos', async (req, res) => {
 // Limpiar cache manualmente (endpoint de utilidad)
 router.delete('/cache', (req, res) => {
   const initialSize = clientCache.size;
+  const clientesSize = clientesCompletosCache.size;
+  
   clientCache.clear();
+  clientesCompletosCache.clear();
   
   res.json({
     success: true,
-    message: `Cache limpiado. Se eliminaron ${initialSize} entradas.`
+    message: `Cache limpiado. Se eliminaron ${initialSize} entradas de búsquedas y ${clientesSize} entradas de clientes completos.`
+  });
+});
+
+// Limpiar cache de clientes específicamente
+router.delete('/clientes/cache', (req, res) => {
+  const initialSize = clientesCompletosCache.size;
+  clientesCompletosCache.clear();
+  
+  res.json({
+    success: true,
+    message: `Cache de clientes limpiado. Se eliminaron ${initialSize} entradas.`
   });
 });
 
@@ -357,6 +414,7 @@ router.get('/cache/stats', (req, res) => {
   let validEntries = 0;
   let expiredEntries = 0;
   
+  // Estadísticas del cache de búsquedas
   for (const [key, value] of clientCache.entries()) {
     if (now - value.timestamp < CACHE_EXPIRY) {
       validEntries++;
@@ -365,13 +423,33 @@ router.get('/cache/stats', (req, res) => {
     }
   }
   
+  // Estadísticas del cache de clientes completos
+  let clientesValidEntries = 0;
+  let clientesExpiredEntries = 0;
+  
+  for (const [key, value] of clientesCompletosCache.entries()) {
+    if (now - value.timestamp < CLIENTES_CACHE_EXPIRY) {
+      clientesValidEntries++;
+    } else {
+      clientesExpiredEntries++;
+    }
+  }
+  
   res.json({
     success: true,
     data: {
-      totalEntries: clientCache.size,
-      validEntries,
-      expiredEntries,
-      cacheExpiryMinutes: CACHE_EXPIRY / (60 * 1000)
+      busquedas: {
+        totalEntries: clientCache.size,
+        validEntries,
+        expiredEntries,
+        cacheExpiryMinutes: CACHE_EXPIRY / (60 * 1000)
+      },
+      clientesCompletos: {
+        totalEntries: clientesCompletosCache.size,
+        validEntries: clientesValidEntries,
+        expiredEntries: clientesExpiredEntries,
+        cacheExpiryMinutes: CLIENTES_CACHE_EXPIRY / (60 * 1000)
+      }
     }
   });
 });
@@ -859,7 +937,7 @@ router.get('/escalas-producto/:codpro', async (req, res) => {
 
 /**
  * GET /api/pedido_app/productos
- * Busca productos con saldos disponibles
+ * Busca productos usando stored procedure Jhon_Producto_BasicoOptimizado
  * Query params: search (opcional), limit (opcional, default 50)
  */
 router.get('/productos', async (req, res) => {
@@ -867,78 +945,52 @@ router.get('/productos', async (req, res) => {
     const pool = await getConnection();
     const { search = '', limit = 50 } = req.query;
     
-    console.log(`🔍 [PRODUCTOS] Búsqueda de productos - Término: "${search}" (SIN LÍMITE - TODOS)`);
+    console.log(`🔍 [PRODUCTOS] Búsqueda de productos - Término: "${search}" usando SP Jhon_Producto_BasicoOptimizado`);
     
-    // Construir la consulta base - SIN LÍMITE TOP para traer TODOS los datos
-    let query = `
-      SELECT
-          s.codpro,
-          p.nombre AS nombre_producto,
-          p.PventaMa as Pventa,
-          p.ComisionH AS Desc1,
-          p.comisionV AS Desc2,
-          p.comisionR AS Desc3,
-          CAST(p.afecto AS INT) AS afecto,
-          SUM(s.saldo) AS saldo_total
-      FROM
-          saldos s
-      JOIN
-          productos p ON s.codpro = p.codpro
-      WHERE
-          s.almacen <> '3' and p.Eliminado = 0
-    `;
+    // Usar el stored procedure Jhon_Producto_BasicoOptimizado
+    const result = await pool.request()
+      .execute('Jhon_Producto_BasicoOptimizado');
     
-    // Agregar filtro de búsqueda si se proporciona
+    let productos = result.recordset;
+    
+    // Mapear campos para compatibilidad con frontend
+    productos = productos.map(producto => ({
+      ...producto,
+      nombre_producto: producto.nombre, // Mapear nombre a nombre_producto
+      codpro: producto.codpro?.trim(), // Limpiar espacios
+      nombre: producto.nombre?.trim() // Limpiar espacios
+    }));
+    
+    // Aplicar filtro de búsqueda si se proporciona
     if (search && search.trim() !== '') {
-      const searchTerm = `%${search.trim()}%`;
-      query += `
-          AND (
-              p.nombre LIKE @searchTerm
-              OR CAST(s.codpro AS VARCHAR) LIKE @searchTerm
-          )
-      `;
+      const searchTerm = search.trim().toLowerCase();
+      productos = productos.filter(producto => 
+        producto.nombre.toLowerCase().includes(searchTerm) ||
+        producto.codpro.toLowerCase().includes(searchTerm)
+      );
+      console.log(`🔍 Filtro aplicado: "${searchTerm}" - Productos filtrados: ${productos.length}`);
     }
     
-    query += `
-      GROUP BY
-          s.codpro,
-          p.nombre,
-          p.PventaMa,
-          p.ComisionH,
-          p.comisionV,
-          p.comisionR,
-          CAST(p.afecto AS INT)
-      ORDER BY
-          saldo_total DESC
-    `;
-    
-    console.log(`📋 Query SQL:`, query);
-    
-    const request = pool.request();
-    
-    // Agregar parámetro de búsqueda si existe
-    if (search && search.trim() !== '') {
-      const searchTerm = `%${search.trim()}%`;
-      request.input('searchTerm', searchTerm);
-      console.log(`🔍 Parámetro de búsqueda: "${searchTerm}"`);
+    // Aplicar límite si se especifica
+    if (limit && parseInt(limit) > 0) {
+      productos = productos.slice(0, parseInt(limit));
     }
     
-    const result = await request.query(query);
-    
-    console.log(`✅ Productos encontrados: ${result.recordset.length}`);
-    console.log(`📦 [PRODUCTOS] Primeros 3 productos:`, result.recordset.slice(0, 3));
-    console.log(`✅ [PRODUCTOS] TODOS los productos encontrados: ${result.recordset.length} (SIN LÍMITE)`);
+    console.log(`✅ Productos encontrados: ${productos.length}`);
+    console.log(`📦 [PRODUCTOS] Primeros 3 productos:`, productos.slice(0, 3));
+    console.log(`✅ [PRODUCTOS] Productos obtenidos con SP: ${productos.length}`);
     
     res.json({
       success: true,
-      data: result.recordset,
-      total: result.recordset.length,
+      data: productos,
+      total: productos.length,
       search: search,
-      limit: parseInt(limit)
+      limit: parseInt(limit),
+      source: 'Jhon_Producto_BasicoOptimizado'
     });
 
   } catch (error) {
-    console.error('❌ [PRODUCTOS] Error al buscar productos:', error);
+    console.error('❌ [PRODUCTOS] Error al buscar productos con SP:', error);
     res.status(500).json({
       success: false,
       error: 'Error al buscar productos',
