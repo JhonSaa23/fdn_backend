@@ -1633,4 +1633,563 @@ router.post('/producto-calculos', async (req, res) => {
   }
 });
 
+// =====================================================
+// GESTIÓN DE NÚMEROS CORRELATIVOS DE PEDIDOS
+// =====================================================
+
+/**
+ * POST /api/pedido_app/obtener-correlativo-pedido
+ * Obtiene el siguiente número correlativo de pedido de forma segura
+ * Maneja múltiples vendedores simultáneos sin conflictos
+ */
+router.post('/obtener-correlativo-pedido', async (req, res) => {
+  const pool = await getConnection();
+  const transaction = pool.transaction();
+  
+  try {
+    await transaction.begin();
+    
+    console.log('🔢 [CORRELATIVO] Iniciando obtención de número correlativo...');
+    
+    // 1. Obtener el número base de la tabla tablas (Fdn-0000000)
+    const queryTablas = `
+      SELECT n_numero, c_describe 
+      FROM tablas 
+      WHERE n_codtabla = 330 AND n_numero = 16
+    `;
+    
+    const resultTablas = await transaction.request().query(queryTablas);
+    
+    if (resultTablas.recordset.length === 0) {
+      throw new Error('No se encontró la configuración de correlativo Fdn en tablas');
+    }
+    
+    const configCorrelativo = resultTablas.recordset[0];
+    const numeroBase = configCorrelativo.c_describe; // "Fdn-0000000"
+    
+    console.log(`📋 [CORRELATIVO] Configuración base encontrada: ${numeroBase}`);
+    
+    // 2. Extraer el número actual del formato "Fdn-0000000"
+    const match = numeroBase.match(/Fdn-(\d+)/);
+    if (!match) {
+      throw new Error('Formato de correlativo inválido en tablas');
+    }
+    
+    let numeroActual = parseInt(match[1]);
+    console.log(`🔢 [CORRELATIVO] Número base extraído: ${numeroActual}`);
+    
+    // 3. Buscar el último número usado en doccabped
+    const queryUltimoPedido = `
+      SELECT TOP 1 numero 
+      FROM doccabped 
+      WHERE LEFT(numero, 3) = 'Fdn' 
+      ORDER BY CAST(SUBSTRING(numero, 5, 10) AS INT) DESC
+    `;
+    
+    const resultUltimo = await transaction.request().query(queryUltimoPedido);
+    
+    if (resultUltimo.recordset.length > 0) {
+      const ultimoNumero = resultUltimo.recordset[0].numero;
+      const matchUltimo = ultimoNumero.match(/Fdn-(\d+)/);
+      
+      if (matchUltimo) {
+        const numeroEnBD = parseInt(matchUltimo[1]);
+        console.log(`📊 [CORRELATIVO] Último número en doccabped: ${numeroEnBD}`);
+        
+        // Usar el mayor entre el configurado y el existente
+        if (numeroEnBD >= numeroActual) {
+          numeroActual = numeroEnBD + 1;
+        } else {
+          numeroActual = numeroActual + 1;
+        }
+      }
+    } else {
+      numeroActual = numeroActual + 1;
+    }
+    
+    console.log(`✅ [CORRELATIVO] Número asignado: ${numeroActual}`);
+    
+    // 4. Verificar que el número no esté en uso (por si hay pedidos de prueba)
+    let numeroFinal = numeroActual;
+    let intentos = 0;
+    const maxIntentos = 100; // Evitar bucle infinito
+    
+    while (intentos < maxIntentos) {
+      const numeroFormateado = `Fdn-${numeroFinal.toString().padStart(7, '0')}`;
+      
+      const queryVerificar = `
+        SELECT COUNT(*) as existe 
+        FROM doccabped 
+        WHERE numero = @numero
+      `;
+      
+      const resultVerificar = await transaction.request()
+        .input('numero', numeroFormateado)
+        .query(queryVerificar);
+      
+      const existe = resultVerificar.recordset[0].existe > 0;
+      
+      if (!existe) {
+        console.log(`✅ [CORRELATIVO] Número disponible: ${numeroFormateado}`);
+        break;
+      } else {
+        console.log(`⚠️ [CORRELATIVO] Número en uso: ${numeroFormateado}, probando siguiente...`);
+        numeroFinal++;
+        intentos++;
+      }
+    }
+    
+    if (intentos >= maxIntentos) {
+      throw new Error('No se pudo encontrar un número correlativo disponible');
+    }
+    
+    const numeroCorrelativoFinal = `Fdn-${numeroFinal.toString().padStart(7, '0')}`;
+    
+    // 5. Actualizar la tabla tablas con el siguiente número
+    const nuevoNumeroBase = `Fdn-${numeroFinal.toString().padStart(7, '0')}`;
+    const queryActualizar = `
+      UPDATE tablas 
+      SET c_describe = @nuevoNumero 
+      WHERE n_codtabla = 330 AND n_numero = 16
+    `;
+    
+    await transaction.request()
+      .input('nuevoNumero', nuevoNumeroBase)
+      .query(queryActualizar);
+    
+    console.log(`🔄 [CORRELATIVO] Tabla tablas actualizada a: ${nuevoNumeroBase}`);
+    
+    // 6. Confirmar transacción
+    await transaction.commit();
+    
+    console.log(`✅ [CORRELATIVO] Correlativo asignado exitosamente: ${numeroCorrelativoFinal}`);
+    
+    // Crear timestamp en hora local de Perú (UTC-5)
+    const now = new Date();
+    // Perú está en UTC-5, así que restamos 5 horas del UTC actual
+    const peruTime = new Date(now.getTime() - (5 * 60 * 60 * 1000));
+    
+    // Debug: mostrar las horas para verificar
+    console.log(`🕐 [CORRELATIVO] Hora UTC del servidor: ${now.toISOString()}`);
+    console.log(`🕐 [CORRELATIVO] Hora calculada para Perú: ${peruTime.toISOString()}`);
+    // Usar métodos UTC para obtener la hora correcta
+    const peruHour = peruTime.getUTCHours();
+    const peruMinute = peruTime.getUTCMinutes();
+    const peruSecond = peruTime.getUTCSeconds();
+    const peruDay = peruTime.getUTCDate();
+    const peruMonth = peruTime.getUTCMonth() + 1;
+    const peruYear = peruTime.getUTCFullYear();
+    
+    console.log(`🕐 [CORRELATIVO] Hora local formateada: ${peruHour}:${peruMinute}:${peruSecond}`);
+    
+    res.json({
+      success: true,
+      data: {
+        numeroCorrelativo: numeroCorrelativoFinal,
+        numeroBase: numeroBase,
+        numeroAsignado: numeroFinal,
+        timestamp: peruTime.toISOString(),
+        timestampLocal: `${peruDay.toString().padStart(2, '0')}/${peruMonth.toString().padStart(2, '0')}/${peruYear}, ${peruHour.toString().padStart(2, '0')}:${peruMinute.toString().padStart(2, '0')}:${peruSecond.toString().padStart(2, '0')}`,
+        message: `Número de pedido asignado: ${numeroCorrelativoFinal}`
+      },
+      message: 'Correlativo obtenido exitosamente'
+    });
+    
+  } catch (error) {
+    // Rollback en caso de error
+    if (transaction) {
+      try {
+        await transaction.rollback();
+      } catch (rollbackError) {
+        console.error('❌ [CORRELATIVO] Error en rollback:', rollbackError);
+      }
+    }
+    
+    console.error('❌ [CORRELATIVO] Error obteniendo correlativo:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Error al obtener número correlativo',
+      details: error.message
+    });
+  }
+});
+
+/**
+ * GET /api/pedido_app/estado-correlativos
+ * Endpoint de información para verificar el estado actual de los correlativos
+ */
+router.get('/estado-correlativos', async (req, res) => {
+  try {
+    const pool = await getConnection();
+    
+    // Obtener configuración actual
+    const queryConfig = `
+      SELECT n_numero, c_describe 
+      FROM tablas 
+      WHERE n_codtabla = 330 AND n_numero = 16
+    `;
+    
+    const resultConfig = await pool.request().query(queryConfig);
+    const config = resultConfig.recordset[0] || null;
+    
+    // Obtener últimos 10 pedidos Fdn
+    const queryUltimos = `
+      SELECT TOP 10 numero, fecha, estado, codclie 
+      FROM doccabped 
+      WHERE LEFT(numero, 3) = 'Fdn' 
+      ORDER BY CAST(SUBSTRING(numero, 5, 10) AS INT) DESC
+    `;
+    
+    const resultUltimos = await pool.request().query(queryUltimos);
+    
+    // Estadísticas
+    const queryStats = `
+      SELECT 
+        COUNT(*) as total_pedidos,
+        MIN(CAST(SUBSTRING(numero, 5, 10) AS INT)) as numero_minimo,
+        MAX(CAST(SUBSTRING(numero, 5, 10) AS INT)) as numero_maximo
+      FROM doccabped 
+      WHERE LEFT(numero, 3) = 'Fdn'
+    `;
+    
+    const resultStats = await pool.request().query(queryStats);
+    const stats = resultStats.recordset[0];
+    
+    res.json({
+      success: true,
+      data: {
+        configuracion: config,
+        ultimosPedidos: resultUltimos.recordset,
+        estadisticas: {
+          totalPedidos: stats.total_pedidos,
+          numeroMinimo: stats.numero_minimo,
+          numeroMaximo: stats.numero_maximo
+        }
+      },
+      message: 'Estado de correlativos obtenido exitosamente'
+    });
+    
+  } catch (error) {
+    console.error('❌ [ESTADO-CORRELATIVOS] Error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Error al obtener estado de correlativos',
+      details: error.message
+    });
+  }
+});
+
+// =====================================================
+// CREAR PEDIDO COMPLETO CON CORRELATIVO
+// =====================================================
+
+/**
+ * POST /api/pedido_app/crear-pedido
+ * Crea un pedido completo usando el stored procedure sp_PedidosVentas_Insertar
+ * body: { numeroCorrelativo, clienteData, productos, configuracion }
+ */
+router.post('/crear-pedido', async (req, res) => {
+  const pool = await getConnection();
+  const transaction = pool.transaction();
+  
+  try {
+    await transaction.begin();
+    
+    const { 
+      numeroCorrelativo, 
+      clienteData, 
+      productos, 
+      configuracion 
+    } = req.body;
+    
+    console.log('🛒 [CREAR-PEDIDO] Iniciando creación de pedido...');
+    console.log('📋 [CREAR-PEDIDO] Número correlativo:', numeroCorrelativo);
+    console.log('👤 [CREAR-PEDIDO] Cliente:', clienteData?.Razon);
+    console.log('📦 [CREAR-PEDIDO] Productos:', productos?.length || 0);
+    
+    // Validar datos requeridos
+    if (!numeroCorrelativo || !clienteData || !productos || productos.length === 0) {
+      throw new Error('Datos del pedido incompletos');
+    }
+    
+    // Usar los totales reales calculados en el frontend (redondeados a 2 decimales)
+    const subtotal = Math.round((parseFloat(configuracion?.subtotal) || 0) * 100) / 100;
+    const igvMonto = Math.round((parseFloat(configuracion?.igv) || 0) * 100) / 100;
+    const total = Math.round((parseFloat(configuracion?.total) || 0) * 100) / 100;
+    
+    
+    // Obtener datos del vendedor desde el token
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      throw new Error('Token de autorización requerido');
+    }
+    
+    const token = authHeader.substring(7);
+    const jwtSecret = process.env.JWT_SECRET || 'tu_secret_key';
+    const decoded = jwt.verify(token, jwtSecret);
+    
+    
+    const vendedorId = decoded.CodigoInterno;
+    const vendedorNombres = decoded.nombres || decoded.Nombre || decoded.nombre || 'Usuario';
+    const vendedorCodint = decoded.CodigoInterno || vendedorId;
+    
+    // Separar nombre y apellido del campo 'nombres'
+    const partesNombre = vendedorNombres.split(' ');
+    const vendedorNombre = partesNombre[0] || 'Usuario';
+    const vendedorApellido = partesNombre.slice(1).join(' ') || '';
+    
+    if (!vendedorId) {
+      throw new Error('Vendedor no encontrado en el token');
+    }
+    
+    
+    // Preparar parámetros para el stored procedure
+    const params = {
+      nume: numeroCorrelativo,
+      tipo: parseInt(configuracion?.tipoDocumento) || 1, // 1=Factura, 2=Boleta
+      cod: parseInt(clienteData.Codclie),
+      dire: clienteData.Direccion || '',
+      fecha: new Date(),
+      subtotal: subtotal, // Ya redondeado a 2 decimales
+      igv: igvMonto, // Ya redondeado a 2 decimales
+      total: total, // Ya redondeado a 2 decimales
+      moneda: 1, // Soles
+      cambio: 3.01, // Siempre 3.01 como en el ejemplo
+      ven: vendedorId,
+      dias: parseInt(configuracion?.diasCredito) || 0, // Días según la condición seleccionada
+      condicion: parseInt(configuracion?.condicion) || 1, // Usar la condición del frontend
+      estado: parseInt(configuracion?.estado) || 2, // 2=Comercial por defecto
+      observa: configuracion?.observacion || '',
+      conletra: false, // No usar con letras por defecto
+      urgente: configuracion?.urgente || false,
+      representa: configuracion?.representante ? parseInt(configuracion.representante) : 0 // 0 si no tiene valor
+    };
+    
+    
+    // Ejecutar el stored procedure
+    const result = await transaction.request()
+      .input('nume', params.nume)
+      .input('tipo', params.tipo)
+      .input('cod', params.cod)
+      .input('dire', params.dire)
+      .input('fecha', params.fecha)
+      .input('subtotal', params.subtotal)
+      .input('igv', params.igv)
+      .input('total', params.total)
+      .input('moneda', params.moneda)
+      .input('cambio', params.cambio)
+      .input('ven', params.ven)
+      .input('dias', params.dias)
+      .input('condicion', params.condicion)
+      .input('estado', params.estado)
+      .input('observa', params.observa)
+      .input('conletra', params.conletra)
+      .input('urgente', params.urgente)
+      .input('representa', params.representa)
+      .execute('sp_PedidosVentas_Insertar');
+    
+    
+    // Ahora crear los detalles del pedido
+    await _crearDetallesPedido(transaction, numeroCorrelativo, productos);
+    
+    
+    // Registrar auditoría
+    await _registrarAuditoria(transaction, numeroCorrelativo, clienteData, {
+      codint: vendedorCodint,
+      nombre: vendedorNombre,
+      apellido: vendedorApellido
+    });
+    
+    // Confirmar transacción
+    await transaction.commit();
+    
+    
+    res.json({
+      success: true,
+      data: {
+        numeroPedido: numeroCorrelativo,
+        cliente: clienteData.Razon,
+        totalProductos: productos.length,
+        subtotal: subtotal,
+        igv: igvMonto,
+        total: total,
+        estado: params.estado,
+        fecha: new Date().toISOString()
+      },
+      message: 'Pedido creado exitosamente'
+    });
+    
+  } catch (error) {
+    // Rollback en caso de error
+    if (transaction) {
+      try {
+        await transaction.rollback();
+      } catch (rollbackError) {
+        console.error('❌ [CREAR-PEDIDO] Error en rollback:', rollbackError);
+      }
+    }
+    
+    console.error('❌ [CREAR-PEDIDO] Error creando pedido:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Error al crear el pedido',
+      details: error.message
+    });
+  }
+});
+
+/**
+ * Función auxiliar para crear los detalles del pedido usando sp_DetaPedidoVenta_Insertar
+ * Incluye TODOS los productos: principales, packs y bonificaciones
+ * Los nbonif ya vienen asignados desde el frontend
+ */
+async function _crearDetallesPedido(transaction, numeroPedido, productos) {
+  
+  // Procesar todos los productos tal como vienen del frontend
+  for (let i = 0; i < productos.length; i++) {
+    const producto = productos[i];
+    const esBonificacion = producto.esBonificacion || false;
+    const nbonif = producto.nbonif || 0; // Ya viene como int desde el frontend
+    
+    
+    await _procesarProductoDetalle(transaction, numeroPedido, producto, nbonif, esBonificacion);
+  }
+  
+}
+
+/**
+ * Función auxiliar para procesar un producto individual en el detalle del pedido
+ */
+async function _procesarProductoDetalle(transaction, numeroPedido, producto, indiceBonificacion, esBonificacion) {
+  
+  const precioOriginal = parseFloat(producto.Pventa) || 0;
+  const cantidad = parseFloat(producto.cantidad) || 0;
+  let subtotalProducto = parseFloat(producto.subtotal) || 0;
+  
+  // Manejar bonificaciones: 100% de descuento y subtotal = 0
+  let desc1, desc2, desc3;
+  
+  if (esBonificacion) {
+    // BONIFICACIÓN: 100% de descuento en Desc1, otros descuentos en 0
+    // PERO mantiene el precio original
+    desc1 = 100.00;
+    desc2 = 0.00;
+    desc3 = 0.00;
+    subtotalProducto = 0.00; // Las bonificaciones siempre tienen subtotal 0
+  } else {
+    // PRODUCTO PRINCIPAL: usar descuentos reales del frontend
+    desc1 = parseFloat(producto.Desc1) || 0;
+    desc2 = parseFloat(producto.Desc2) || 0;
+    desc3 = parseFloat(producto.Desc3) || 0;
+  }
+  
+  
+  // Preparar parámetros para el stored procedure sp_DetaPedidoVenta_Insertar
+  const params = {
+    num: numeroPedido,
+    idpro: String(producto.codpro),
+    unimed: parseInt(producto.unimed) || 1, // Unidad de medida (1 por defecto)
+    cantidad: cantidad,
+    adicional: parseFloat(producto.adicional) || 0, // Adicional (0 por defecto)
+    precio: precioOriginal, // Usar precio original para bonificaciones
+    unidad: parseInt(producto.unidad) || 1, // Unidades (1 por defecto)
+    des1: desc1,
+    des2: desc2,
+    des3: desc3,
+    paquete: parseInt(producto.paquete) || 0, // Paquete (0 por defecto)
+    subtotal: subtotalProducto,
+    autoriza: producto.autoriza || false, // Autorización (false por defecto)
+    nbonif: indiceBonificacion, // Usar el nbonif que viene del frontend
+    codprom: '', // Siempre vacío
+    descab: '', // Siempre vacío
+    codofer: '', // Siempre vacío
+    codaut: '' // Siempre vacío
+  };
+  
+  
+  // Ejecutar el stored procedure sp_DetaPedidoVenta_Insertar
+  await transaction.request()
+    .input('num', params.num)
+    .input('idpro', params.idpro)
+    .input('unimed', params.unimed)
+    .input('cantidad', params.cantidad)
+    .input('adicional', params.adicional)
+    .input('precio', params.precio)
+    .input('unidad', params.unidad)
+    .input('des1', params.des1)
+    .input('des2', params.des2)
+    .input('des3', params.des3)
+    .input('paquete', params.paquete)
+    .input('subtotal', params.subtotal)
+    .input('autoriza', params.autoriza)
+    .input('nbonif', params.nbonif)
+    .input('codprom', params.codprom)
+    .input('descab', params.descab)
+    .input('codofer', params.codofer)
+    .input('codaut', params.codaut)
+    .execute('sp_DetaPedidoVenta_Insertar');
+  
+}
+
+/**
+ * Registra la auditoría del pedido usando sp_Accountig_inserta
+ */
+async function _registrarAuditoria(transaction, numeroPedido, clienteData, vendedorInfo) {
+  try {
+    
+    // Construir operador: codint + "-" + primer nombre
+    const primerNombre = vendedorInfo.nombre.split(' ')[0];
+    const operador = `${vendedorInfo.codint}-${primerNombre}`;
+    
+    // Construir máquina: primer nombre + iniciales del resto
+    const nombreCompleto = `${vendedorInfo.nombre} ${vendedorInfo.apellido}`.trim();
+    const maquina = _construirNombreMaquina(nombreCompleto);
+    
+    // Construir detalle: numeroPedido->Cliente:codCliente
+    const codCliente = clienteData.Codclie || clienteData.codclie || 'N/A';
+    const detalle = `${numeroPedido}->Cliente:${codCliente}`;
+    
+    // Usar la misma fecha que se usó para el correlativo
+    const fechaPedido = new Date();
+    
+    
+    // Ejecutar sp_Accountig_inserta
+    await transaction.request()
+      .input('fecha', fechaPedido)
+      .input('operador', operador)
+      .input('usuarioSO', 'X')
+      .input('maquina', maquina)
+      .input('opcion', 'Ventas-Pedido de Ventas')
+      .input('accion', 'Registrar Pedido de ventas')
+      .input('formulario', 'Fdn-App')
+      .input('detalle', detalle)
+      .execute('sp_Accountig_inserta');
+    
+    
+  } catch (error) {
+    console.error('❌ [AUDITORIA] Error registrando auditoría:', error);
+    // No lanzar error para no afectar la creación del pedido
+  }
+}
+
+
+/**
+ * Construye el nombre de máquina: primer nombre + iniciales del resto
+ * Ejemplo: "Fernando Saavedra Llanos" -> "Fernando F.S.L"
+ */
+function _construirNombreMaquina(nombreCompleto) {
+  const partes = nombreCompleto.split(' ');
+  if (partes.length === 0) return 'Usuario';
+  
+  const primerNombre = partes[0];
+  const iniciales = partes.slice(1).map(parte => parte.charAt(0).toUpperCase()).join('.');
+  
+  if (iniciales) {
+    return `${primerNombre} ${iniciales}`;
+  } else {
+    return primerNombre;
+  }
+}
+
+
 module.exports = router;
