@@ -383,9 +383,10 @@ require('./services/gameService')(io);
 
 // Iniciar servidor
 const PORT = process.env.PORT;
-server.listen(PORT, () => {
+server.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Servidor corriendo en el puerto ${PORT}`);
   console.log(`🤖 Bot API disponible en: http://localhost:${PORT}/api/bot`);
   console.log(`📡 API disponible en: http://localhost:${PORT}/api`);
+  console.log(`📱 Accesible desde dispositivos móviles en: http://192.168.18.142:${PORT}/api`);
   console.log(`🎮 Juego WebSocket disponible en: http://localhost:${PORT}`);
 }); 

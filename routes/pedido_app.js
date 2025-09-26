@@ -1378,81 +1378,91 @@ router.post('/producto-calculos', async (req, res) => {
 
     const pool = await getConnection();
 
-    // 1) Intentar con SP unificado primero
+    // 1) Usar SP Jhon_ProductoCalculos para descuentos finales (SIN bonificaciones)
     try {
-      const sp = await pool.request()
+      const spCalculos = await pool.request()
         .input('ruc', ruc)
         .input('codpro', codpro)
         .input('cantidad', cantidad || 1)
         .execute('Jhon_ProductoCalculos');
 
-      const row = sp.recordset?.[0];
-      if (row) {
-        // Usar bonificaciones del procedimiento unificado
+      const rowCalculos = spCalculos.recordset?.[0];
+      if (rowCalculos) {
+        // 2) Obtener bonificaciones por separado usando Jhon_Producto_BasicoOptimizado
         let bonificaciones = null;
-        if (row.bonificaciones) {
-          try {
-            bonificaciones = JSON.parse(row.bonificaciones);
-            console.log(`✅ [BONIFICACION] Bonificaciones del procedimiento: ${bonificaciones.length} opciones`);
-          } catch (e) {
-            console.error('❌ [BONIFICACION] Error parseando bonificaciones del procedimiento:', e);
-          }
-        }
-        
-        // Para compatibilidad con el frontend, usar la primera bonificación aplicable
         let boni = null;
-        if (bonificaciones && bonificaciones.length > 0) {
-          // Buscar la primera bonificación aplicable con la cantidad actual
-          const bonificacionAplicable = bonificaciones.find(b => b.Aplicable === true);
-          if (bonificacionAplicable) {
-            boni = {
-              Codproducto: bonificacionAplicable.CodBoni,
-              Factor: bonificacionAplicable.Factor,
-              CodBoni: bonificacionAplicable.CodBoni,
-              Cantidad: bonificacionAplicable.Cantidad
-            };
-            console.log(`✅ [BONIFICACION] Bonificación aplicable encontrada: Factor ${bonificacionAplicable.Factor}`);
+        
+        try {
+          const spBasico = await pool.request()
+            .execute('Jhon_Producto_BasicoOptimizado');
+          
+          const productosBasicos = spBasico.recordset || [];
+          const productoBasico = productosBasicos.find(p => p.codpro === codpro);
+          
+          if (productoBasico && productoBasico.Bonificaciones) {
+            try {
+              bonificaciones = JSON.parse(productoBasico.Bonificaciones);
+              console.log(`✅ [BONIFICACION] Bonificaciones del SP básico: ${bonificaciones.length} opciones`);
+              
+              // Para compatibilidad con el frontend, usar la primera bonificación aplicable
+              if (bonificaciones && bonificaciones.length > 0) {
+                const bonificacionAplicable = bonificaciones.find(b => b.Aplicable === true);
+                if (bonificacionAplicable) {
+                  boni = {
+                    Codproducto: bonificacionAplicable.CodBoni,
+                    Factor: bonificacionAplicable.Factor,
+                    CodBoni: bonificacionAplicable.CodBoni,
+                    Cantidad: bonificacionAplicable.Cantidad
+                  };
+                  console.log(`✅ [BONIFICACION] Bonificación aplicable encontrada: Factor ${bonificacionAplicable.Factor}`);
+                }
+              }
+            } catch (e) {
+              console.error('❌ [BONIFICACION] Error parseando bonificaciones del SP básico:', e);
+            }
           }
+        } catch (e) {
+          console.error('❌ [BONIFICACION] Error obteniendo bonificaciones del SP básico:', e);
         }
 
         // Log requerido por el usuario: indicar la fuente del cálculo
-        console.error('[CALC-SOURCE] sp_unificado', { ruc, codpro, cantidad });
-        res.setHeader('X-Calc-Source', 'sp_unificado');
+        console.error('[CALC-SOURCE] sp_calculos_separado', { ruc, codpro, cantidad });
+        res.setHeader('X-Calc-Source', 'sp_calculos_separado');
         return res.json({
           success: true,
           data: {
             basicos: {
-              codpro: row.codpro,
-              nombre: row.nombre,
-              PventaMa: row.Pventa,
-              ComisionH: row.Desc1, // valores finales, la UI usa resultado
-              ComisionV: row.Desc2,
-              ComisionR: row.Desc3,
-              afecto: row.afecto,
+              codpro: rowCalculos.codpro,
+              nombre: rowCalculos.nombre,
+              PventaMa: rowCalculos.Pventa,
+              ComisionH: rowCalculos.Desc1, // valores finales calculados
+              ComisionV: rowCalculos.Desc2,
+              ComisionR: rowCalculos.Desc3,
+              afecto: rowCalculos.afecto,
             },
             descuentosCliente: null, // opcional; no necesario con SP unificado
-            tipificacion: row.tipificacion ?? null,
-            rangosTipificacion: row.tipifRangos ? JSON.parse(row.tipifRangos) : null,
+            tipificacion: rowCalculos.tipificacion ?? null,
+            rangosTipificacion: rowCalculos.tipifRangos ? JSON.parse(rowCalculos.tipifRangos) : null,
             escalas: {
-              Rango1: row.R1, Rango2: row.R2, Rango3: row.R3, Rango4: row.R4, Rango5: row.R5,
-              rangoUsado: row.escalaRango,
-              rangosCompletos: row.escalasRangos ? JSON.parse(row.escalasRangos) : null,
+              Rango1: rowCalculos.R1, Rango2: rowCalculos.R2, Rango3: rowCalculos.R3, Rango4: rowCalculos.R4, Rango5: rowCalculos.R5,
+              rangoUsado: rowCalculos.escalaRango,
+              rangosCompletos: rowCalculos.escalasRangos ? JSON.parse(rowCalculos.escalasRangos) : null,
             },
             bonificacion: boni,
             bonificaciones: bonificaciones, // Todas las bonificaciones disponibles
             resultado: {
-              Desc1: row.Desc1,
-              Desc2: row.Desc2,
-              Desc3: row.Desc3,
-              afecto: row.afecto,
-              Pventa: row.Pventa,
+              Desc1: rowCalculos.Desc1,
+              Desc2: rowCalculos.Desc2,
+              Desc3: rowCalculos.Desc3,
+              afecto: rowCalculos.afecto,
+              Pventa: rowCalculos.Pventa,
             },
-            meta: { source: 'sp_unificado' }
+            meta: { source: 'sp_calculos_separado' }
           },
         });
       }
     } catch (e) {
-      console.error('⚠️ [UNIFICADO] SP unificado falló, usando flujo anterior:', e.message);
+      console.error('⚠️ [CALCULOS] SP Jhon_ProductoCalculos falló, usando flujo anterior:', e.message);
       // continua al flujo existente (fallback)
     }
 

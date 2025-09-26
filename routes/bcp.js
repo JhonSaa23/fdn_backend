@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const path = require('path');
 const readXlsxFile = require('read-excel-file/node');
-const { executeQuery } = require('../database');
+const { executeQuery, getConnection } = require('../database');
 const { upload } = require('../utils/fileHandler');
 const fs = require('fs');
 const sql = require('mssql');
@@ -181,14 +181,41 @@ function procesarFechaExcel(fechaObj) {
   return '';
 }
 
-// Obtener todos los registros de BCP
+// Obtener datos de t_movimiento (para vista de importación)
+router.get('/import-data', async (req, res) => {
+  try {
+    const result = await executeQuery('SELECT * FROM t_movimiento ORDER BY Fecha DESC');
+    res.json({
+      success: true,
+      data: result.recordset,
+      total: result.recordset.length
+    });
+  } catch (error) {
+    console.error('Error al obtener datos de importación:', error);
+    res.status(500).json({ 
+      success: false,
+      error: 'Error al obtener datos de importación',
+      message: error.message 
+    });
+  }
+});
+
+// Obtener todos los registros de BCP (MovimientoBanco - para consulta)
 router.get('/', async (req, res) => {
   try {
-    const result = await executeQuery('SELECT * FROM t_movimiento');
-    res.json(result.recordset);
+    const result = await executeQuery('SELECT * FROM MovimientoBanco ORDER BY Fecha DESC');
+    res.json({
+      success: true,
+      data: result.recordset,
+      total: result.recordset.length
+    });
   } catch (error) {
     console.error('Error al obtener registros de BCP:', error);
-    res.status(500).json({ error: 'Error al obtener registros' });
+    res.status(500).json({ 
+      success: false,
+      error: 'Error al obtener registros',
+      message: error.message 
+    });
   }
 });
 
@@ -462,6 +489,227 @@ router.post('/upload-to-prod', async (req, res) => {
   } catch (error) {
     console.error('Error al subir a producción:', error);
     res.status(500).json({ success: false, error: 'Error al subir a producción' });
+  }
+});
+
+// Consultar movimientos BCP con filtros (para el componente ConsultaMovimientos)
+router.post('/consultar', async (req, res) => {
+  try {
+    const { banco, fecha, sucursal, operacion, hora, vendedor, procesado } = req.body;
+    
+    console.log('🚀 Consultando movimientos BCP con filtros:');
+    console.log('- Banco:', banco);
+    console.log('- Fecha:', fecha);
+    console.log('- Sucursal:', sucursal);
+    console.log('- Operación:', operacion);
+    console.log('- Hora:', hora);
+    console.log('- Vendedor:', vendedor);
+    console.log('- Procesado:', procesado);
+    
+    let pool = null;
+    
+    try {
+      pool = await getConnection();
+      
+      // Construir la consulta base para MovimientoBanco
+      let query = `
+        SELECT *
+        FROM MovimientoBanco
+        WHERE 1=1
+      `;
+      
+      const params = [];
+      let paramIndex = 1;
+      
+      // Aplicar filtros si están presentes
+      if (banco && banco.trim() !== '') {
+        query += ` AND Banco = @param${paramIndex}`;
+        params.push({ name: `param${paramIndex}`, type: sql.Int, value: parseInt(banco) });
+        paramIndex++;
+      }
+      
+      if (fecha && fecha.trim() !== '') {
+        // Como Fecha es nvarchar, buscamos por coincidencia de texto
+        query += ` AND CONVERT(date, Fecha) = @param${paramIndex}`;
+        params.push({ name: `param${paramIndex}`, type: sql.Date, value: new Date(fecha) });
+        paramIndex++;
+      }
+      
+      if (sucursal && sucursal.trim() !== '') {
+        query += ` AND Sucursal LIKE @param${paramIndex}`;
+        params.push({ name: `param${paramIndex}`, type: sql.NVarChar(100), value: `%${sucursal.trim()}%` });
+        paramIndex++;
+      }
+      
+      if (operacion && operacion.trim() !== '') {
+        query += ` AND Operacion LIKE @param${paramIndex}`;
+        params.push({ name: `param${paramIndex}`, type: sql.NVarChar(100), value: `%${operacion.trim()}%` });
+        paramIndex++;
+      }
+      
+      if (hora && hora.trim() !== '') {
+        query += ` AND Hora LIKE @param${paramIndex}`;
+        params.push({ name: `param${paramIndex}`, type: sql.NVarChar(100), value: `%${hora.trim()}%` });
+        paramIndex++;
+      }
+      
+      if (vendedor && vendedor.trim() !== '') {
+        query += ` AND Vendedor = @param${paramIndex}`;
+        params.push({ name: `param${paramIndex}`, type: sql.Int, value: parseInt(vendedor) });
+        paramIndex++;
+      }
+      
+      if (procesado && procesado.trim() !== '') {
+        const procesadoValue = procesado.toLowerCase() === 'si' || procesado.toLowerCase() === 'sí' ? 1 : 0;
+        query += ` AND Procesado = @param${paramIndex}`;
+        params.push({ name: `param${paramIndex}`, type: sql.Bit, value: procesadoValue });
+        paramIndex++;
+      }
+      
+      // Ordenar por fecha descendente
+      query += ` ORDER BY Fecha DESC`;
+      
+      console.log('📞 Ejecutando consulta BCP:', query);
+      console.log('📋 Parámetros:', params);
+      
+      const request = pool.request();
+      params.forEach(param => {
+        request.input(param.name, param.type, param.value);
+      });
+      
+      const result = await request.query(query);
+      
+      console.log('✅ Resultado de la consulta BCP:');
+      console.log('- Registros encontrados:', result.recordset.length);
+      console.log('- Primeros 3 registros:', result.recordset.slice(0, 3));
+      
+      res.json({
+        success: true,
+        data: result.recordset,
+        message: `${result.recordset.length} movimientos BCP encontrados`,
+        total: result.recordset.length
+      });
+      
+    } finally {
+      // NO cerrar la conexión aquí, se maneja automáticamente por el pool
+      // El pool se reutiliza para otras consultas
+    }
+    
+  } catch (error) {
+    console.error('❌ Error al consultar movimientos BCP:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error al consultar movimientos BCP',
+      error: error.message,
+      stack: error.stack
+    });
+  }
+});
+
+// Eliminar movimientos BCP (para el componente ConsultaMovimientos)
+router.post('/eliminar', async (req, res) => {
+  try {
+    const { banco, fecha, sucursal, operacion, hora, vendedor, procesado } = req.body;
+    
+    console.log('🗑️ Eliminando movimientos BCP con filtros:');
+    console.log('- Banco:', banco);
+    console.log('- Fecha:', fecha);
+    console.log('- Sucursal:', sucursal);
+    console.log('- Operación:', operacion);
+    console.log('- Hora:', hora);
+    console.log('- Vendedor:', vendedor);
+    console.log('- Procesado:', procesado);
+    
+    let pool = null;
+    
+    try {
+      pool = await getConnection();
+      
+      // Construir la consulta DELETE para MovimientoBanco
+      let query = `
+        DELETE FROM MovimientoBanco
+        WHERE 1=1
+      `;
+      
+      const params = [];
+      let paramIndex = 1;
+      
+      // Aplicar filtros si están presentes (mismos filtros que en consultar)
+      if (banco && banco.trim() !== '') {
+        query += ` AND Banco = @param${paramIndex}`;
+        params.push({ name: `param${paramIndex}`, type: sql.Int, value: parseInt(banco) });
+        paramIndex++;
+      }
+      
+      if (fecha && fecha.trim() !== '') {
+        query += ` AND CONVERT(date, Fecha) = @param${paramIndex}`;
+        params.push({ name: `param${paramIndex}`, type: sql.Date, value: new Date(fecha) });
+        paramIndex++;
+      }
+      
+      if (sucursal && sucursal.trim() !== '') {
+        query += ` AND Sucursal LIKE @param${paramIndex}`;
+        params.push({ name: `param${paramIndex}`, type: sql.NVarChar(100), value: `%${sucursal.trim()}%` });
+        paramIndex++;
+      }
+      
+      if (operacion && operacion.trim() !== '') {
+        query += ` AND Operacion LIKE @param${paramIndex}`;
+        params.push({ name: `param${paramIndex}`, type: sql.NVarChar(100), value: `%${operacion.trim()}%` });
+        paramIndex++;
+      }
+      
+      if (hora && hora.trim() !== '') {
+        query += ` AND Hora LIKE @param${paramIndex}`;
+        params.push({ name: `param${paramIndex}`, type: sql.NVarChar(100), value: `%${hora.trim()}%` });
+        paramIndex++;
+      }
+      
+      if (vendedor && vendedor.trim() !== '') {
+        query += ` AND Vendedor = @param${paramIndex}`;
+        params.push({ name: `param${paramIndex}`, type: sql.Int, value: parseInt(vendedor) });
+        paramIndex++;
+      }
+      
+      if (procesado && procesado.trim() !== '') {
+        const procesadoValue = procesado.toLowerCase() === 'si' || procesado.toLowerCase() === 'sí' ? 1 : 0;
+        query += ` AND Procesado = @param${paramIndex}`;
+        params.push({ name: `param${paramIndex}`, type: sql.Bit, value: procesadoValue });
+        paramIndex++;
+      }
+      
+      console.log('📞 Ejecutando DELETE BCP:', query);
+      console.log('📋 Parámetros:', params);
+      
+      const request = pool.request();
+      params.forEach(param => {
+        request.input(param.name, param.type, param.value);
+      });
+      
+      const result = await request.query(query);
+      
+      console.log('✅ Resultado del DELETE BCP:');
+      console.log('- Registros eliminados:', result.rowsAffected[0]);
+      
+      res.json({
+        success: true,
+        message: `${result.rowsAffected[0]} movimientos BCP eliminados`,
+        eliminados: result.rowsAffected[0]
+      });
+      
+    } finally {
+      // NO cerrar la conexión aquí, se maneja automáticamente por el pool
+      // El pool se reutiliza para otras consultas
+    }
+    
+  } catch (error) {
+    console.error('❌ Error al eliminar movimientos BCP:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error al eliminar movimientos BCP',
+      error: error.message,
+      stack: error.stack
+    });
   }
 });
 
