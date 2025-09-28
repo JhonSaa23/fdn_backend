@@ -8,6 +8,17 @@ console.log('🚀 [SEGUIMIENTO-APP] Router cargado correctamente');
 // El middleware de autenticación ya se aplica en index.js
 // No necesitamos duplicarlo aquí
 
+// Endpoint de prueba para verificar que la ruta funciona
+router.get('/test', (req, res) => {
+  console.log('🧪 [SEGUIMIENTO-TEST] Endpoint de prueba accedido');
+  res.json({
+    success: true,
+    message: 'Endpoint de seguimiento funcionando correctamente',
+    timestamp: new Date().toISOString(),
+    user: req.user
+  });
+});
+
 // Estados de pedidos para convertir números a descripciones
 const estadosPedidos = {
   1: 'Crédito',
