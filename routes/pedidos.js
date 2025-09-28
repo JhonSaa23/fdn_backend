@@ -341,24 +341,29 @@ router.get('/:numero/productos', async (req, res) => {
       };
     });
 
-    // Obtener resumen del pedido
-    const resumenQuery = `
-      SELECT 
-        COUNT(*) as TotalProductos,
-        SUM(Cantidad) as TotalCantidad,
-        SUM(Cantidad * Precio) as Subtotal,
-        SUM(Cantidad * Precio * (1 - (ISNULL(Descuento1, 0) + ISNULL(Descuento2, 0) + ISNULL(Descuento3, 0)) / 100)) as SubtotalConDescuento,
-        SUM(CASE WHEN Autoriza = 1 OR Autoriza = 1 THEN 1 ELSE 0 END) as ProductosRequierenAutorizacion,
-        SUM(CASE WHEN Autoriza = 0 OR Autoriza = 0 THEN 1 ELSE 0 END) as ProductosNoRequierenAutorizacion
-      FROM DocdetPed 
-      WHERE numero = @numero
-    `;
+    // Calcular el resumen desde los productos ya procesados
+    const totalProductos = productos.length;
+    const totalCantidad = productos.reduce((sum, producto) => sum + (producto.Cantidad || 0), 0);
+    const subtotal = productos.reduce((sum, producto) => sum + (producto.Subtotal || 0), 0);
+    const productosRequierenAutorizacion = productos.filter(p => p.RequiereAutorizacion).length;
+    const productosNoRequierenAutorizacion = productos.filter(p => !p.RequiereAutorizacion).length;
 
-    const resumenResult = await pool.request()
-      .input('numero', numeroLimpio)
-      .query(resumenQuery);
+    // Crear objeto resumen con los cálculos correctos
+    const resumen = {
+      TotalProductos: totalProductos,
+      TotalCantidad: totalCantidad,
+      Subtotal: subtotal,
+      ProductosRequierenAutorizacion: productosRequierenAutorizacion,
+      ProductosNoRequierenAutorizacion: productosNoRequierenAutorizacion
+    };
 
-    const resumen = resumenResult.recordset[0];
+    // Debug: Mostrar los cálculos del resumen
+    console.log('📊 RESUMEN CALCULADO:');
+    console.log(`   Total Productos: ${totalProductos}`);
+    console.log(`   Total Cantidad: ${totalCantidad}`);
+    console.log(`   Subtotal (suma de todos los Subtotal de la BD): ${subtotal}`);
+    console.log(`   Productos que requieren autorización: ${productosRequierenAutorizacion}`);
+    console.log(`   Productos que NO requieren autorización: ${productosNoRequierenAutorizacion}`);
 
     res.json({
       success: true,
@@ -366,13 +371,12 @@ router.get('/:numero/productos', async (req, res) => {
         numero: numeroLimpio,
         productos: productos,
         resumen: {
-          totalProductos: resumen.TotalProductos,
-          totalCantidad: resumen.TotalCantidad,
-          subtotal: resumen.Subtotal,
-          subtotalConDescuento: resumen.SubtotalConDescuento,
-          productosRequierenAutorizacion: resumen.ProductosRequierenAutorizacion,
-          productosNoRequierenAutorizacion: resumen.ProductosNoRequierenAutorizacion,
-          porcentajeRequiereAutorizacion: resumen.TotalProductos > 0 ? 
+          totalProductos: resumen.TotalProductos || 0,
+          totalCantidad: resumen.TotalCantidad || 0,
+          subtotal: resumen.Subtotal || 0,
+          productosRequierenAutorizacion: resumen.ProductosRequierenAutorizacion || 0,
+          productosNoRequierenAutorizacion: resumen.ProductosNoRequierenAutorizacion || 0,
+          porcentajeRequiereAutorizacion: (resumen.TotalProductos > 0) ? 
             Math.round((resumen.ProductosRequierenAutorizacion / resumen.TotalProductos) * 100) : 0
         },
         pedido: verificarResult.recordset[0]

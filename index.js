@@ -33,6 +33,7 @@ const vistasRoutes = require('./routes/vistas');
 const historialClienteRoutes = require('./routes/historialCliente');
 const infocorpRoutes = require('./routes/infocorp');
 const pedidoAppRoutes = require('./routes/pedido_app');
+const seguimientoAppRoutes = require('./routes/seguimiento_app');
 const letrasRoutes = require('./routes/letras');
 const { authenticateToken, requireAdmin, optionalAuth } = require('./middleware/auth');
 
@@ -218,6 +219,9 @@ app.use('/api/infocorp', authenticateToken, infocorpRoutes);
 // Ruta para la app móvil de pedidos
 app.use('/api/pedido_app', authenticateToken, pedidoAppRoutes);
 
+// Ruta para seguimiento de pedidos
+app.use('/api/seguimiento_app', authenticateToken, seguimientoAppRoutes);
+
 // Ruta para letras de cambio
 app.use('/api/letras', authenticateToken, letrasRoutes);
 
@@ -381,12 +385,30 @@ io.on('connection', (socket) => {
 // Lógica del juego de 3 en raya
 require('./services/gameService')(io);
 
+// Función para obtener la IP local
+function getLocalIP() {
+  const os = require('os');
+  const interfaces = os.networkInterfaces();
+  
+  for (const name of Object.keys(interfaces)) {
+    for (const interface of interfaces[name]) {
+      // Buscar IPv4 que no sea loopback
+      if (interface.family === 'IPv4' && !interface.internal) {
+        return interface.address;
+      }
+    }
+  }
+  return 'localhost';
+}
+
 // Iniciar servidor
 const PORT = process.env.PORT;
+const localIP = getLocalIP();
+
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Servidor corriendo en el puerto ${PORT}`);
   console.log(`🤖 Bot API disponible en: http://localhost:${PORT}/api/bot`);
   console.log(`📡 API disponible en: http://localhost:${PORT}/api`);
-  console.log(`📱 Accesible desde dispositivos móviles en: http://192.168.18.142:${PORT}/api`);
+  console.log(`📱 Accesible desde dispositivos móviles en: http://${localIP}:${PORT}/api`);
   console.log(`🎮 Juego WebSocket disponible en: http://localhost:${PORT}`);
 }); 
