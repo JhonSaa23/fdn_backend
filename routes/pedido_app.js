@@ -1916,6 +1916,10 @@ router.post('/crear-pedido', async (req, res) => {
     console.log('📋 [CREAR-PEDIDO] Número correlativo:', numeroCorrelativo);
     console.log('👤 [CREAR-PEDIDO] Cliente:', clienteData?.Razon);
     console.log('📦 [CREAR-PEDIDO] Productos:', productos?.length || 0);
+    console.log('🔧 [CREAR-PEDIDO] Configuración recibida:', JSON.stringify(configuracion, null, 2));
+    console.log('📦 [CREAR-PEDIDO] Primer producto:', productos?.[0] ? JSON.stringify(productos[0], null, 2) : 'No hay productos');
+    console.log('🔢 [CREAR-PEDIDO] Número correlativo original:', numeroCorrelativo);
+    console.log('🔢 [CREAR-PEDIDO] Cliente CodClie original:', clienteData.Codclie);
     
     // Validar datos requeridos
     if (!numeroCorrelativo || !clienteData || !productos || productos.length === 0) {
@@ -1954,10 +1958,19 @@ router.post('/crear-pedido', async (req, res) => {
     
     
     // Preparar parámetros para el stored procedure
+    // @nume debe ser char (string), no int
+    const numeConvertido = numeroCorrelativo.toString(); // Mantener como string
+    const codConvertido = parseInt(clienteData.Codclie) || 0;
+    const venConvertido = parseInt(vendedorId) || 0; // Convertir vendedor a int
+    
+    console.log('🔢 [CREAR-PEDIDO] Número correlativo convertido:', numeConvertido);
+    console.log('🔢 [CREAR-PEDIDO] Cliente CodClie convertido:', codConvertido);
+    console.log('🔢 [CREAR-PEDIDO] Vendedor convertido:', venConvertido);
+    
     const params = {
-      nume: numeroCorrelativo,
+      nume: numeConvertido, // Mantener como string (char)
       tipo: parseInt(configuracion?.tipoDocumento) || 1, // 1=Factura, 2=Boleta
-      cod: parseInt(clienteData.Codclie),
+      cod: codConvertido, // Asegurar que sea un entero válido
       dire: clienteData.Direccion || '',
       fecha: new Date(),
       subtotal: subtotal, // Ya redondeado a 2 decimales
@@ -1965,7 +1978,7 @@ router.post('/crear-pedido', async (req, res) => {
       total: total, // Ya redondeado a 2 decimales
       moneda: 1, // Soles
       cambio: 3.01, // Siempre 3.01 como en el ejemplo
-      ven: vendedorId,
+      ven: venConvertido, // Usar el vendedor convertido a int
       dias: parseInt(configuracion?.diasCredito) || 0, // Días según la condición seleccionada
       condicion: parseInt(configuracion?.condicion) || 1, // Usar la condición del frontend
       estado: parseInt(configuracion?.estado) || 2, // 2=Comercial por defecto
@@ -2034,16 +2047,31 @@ router.post('/crear-pedido', async (req, res) => {
     if (transaction) {
       try {
         await transaction.rollback();
+        console.log('🔄 [CREAR-PEDIDO] Rollback ejecutado correctamente');
       } catch (rollbackError) {
         console.error('❌ [CREAR-PEDIDO] Error en rollback:', rollbackError);
       }
     }
     
     console.error('❌ [CREAR-PEDIDO] Error creando pedido:', error);
+    console.error('❌ [CREAR-PEDIDO] Stack trace:', error.stack);
+    console.error('❌ [CREAR-PEDIDO] Error details:', {
+      message: error.message,
+      name: error.name,
+      code: error.code,
+      number: error.number,
+      state: error.state,
+      class: error.class,
+      serverName: error.serverName,
+      procName: error.procName,
+      lineNumber: error.lineNumber
+    });
+    
     res.status(500).json({
       success: false,
       error: 'Error al crear el pedido',
-      details: error.message
+      details: error.message,
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
     });
   }
 });
