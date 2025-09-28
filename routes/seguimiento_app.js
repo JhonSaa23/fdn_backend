@@ -1,37 +1,12 @@
 const express = require('express');
 const router = express.Router();
-const jwt = require('jsonwebtoken');
 const sql = require('mssql');
 const { getConnection } = require('../database');
 
-// Middleware de autenticación
-const authenticateToken = (req, res, next) => {
-  console.log(`🔐 [AUTH] Ruta: ${req.path}`);
-  console.log(`🔐 [AUTH] Headers:`, req.headers);
-  
-  const authHeader = req.headers['authorization'];
-  const token = authHeader && authHeader.split(' ')[1];
+console.log('🚀 [SEGUIMIENTO-APP] Router cargado correctamente');
 
-  if (!token) {
-    console.log(`❌ [AUTH] No token found`);
-    return res.status(401).json({ error: 'Token de acceso requerido' });
-  }
-
-  console.log(`🔐 [AUTH] Token encontrado: ${token.substring(0, 20)}...`);
-
-  jwt.verify(token, process.env.JWT_SECRET, (err, user) => {
-    if (err) {
-      console.log(`❌ [AUTH] Token inválido:`, err.message);
-      return res.status(403).json({ error: 'Token inválido' });
-    }
-    console.log(`✅ [AUTH] Token válido, usuario:`, user);
-    req.user = user;
-    next();
-  });
-};
-
-// Aplicar middleware de autenticación a todas las rutas
-router.use(authenticateToken);
+// El middleware de autenticación ya se aplica en index.js
+// No necesitamos duplicarlo aquí
 
 // Estados de pedidos para convertir números a descripciones
 const estadosPedidos = {
@@ -174,7 +149,8 @@ router.get('/vendedor/pedidos', async (req, res) => {
 // Server-Sent Events para tiempo real
 router.get('/vendedor/pedidos/stream', async (req, res) => {
   try {
-    console.log(`🌊 [SEGUIMIENTO-SSE] Endpoint llamado - Headers:`, req.headers);
+    console.log(`🌊 [SEGUIMIENTO-SSE] ✅ RUTA ACCEDIDA - /vendedor/pedidos/stream`);
+    console.log(`🌊 [SEGUIMIENTO-SSE] Headers:`, req.headers);
     console.log(`🌊 [SEGUIMIENTO-SSE] User object:`, req.user);
     
     const vendedorId = req.user.idus;
