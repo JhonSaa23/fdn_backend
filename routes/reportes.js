@@ -306,18 +306,16 @@ router.post('/loreal-notas/view', async (req, res) => {
       });
     }
 
-    const query = `
-      EXEC dbo.sp_Jhon_ActualizarVistaNCLoral @anio, @mes
-    `;
-
-    await executeQuery(query, {
-      anio: parseInt(anio),
-      mes: parseInt(mes)
-    });
+    // Ejecutar el SP para actualizar la vista
+    const pool = await getConnection();
+    await pool.request()
+      .input('anio', sql.Int, parseInt(anio))
+      .input('mes', sql.Int, parseInt(mes))
+      .execute('dbo.sp_Jhon_ActualizarVistaNCLoral');
     
     res.json({ 
       success: true, 
-      message: `Vista actualizada a ${anio}-${mes}` 
+      message: `Vista actualizada correctamente para ${anio}-${mes}` 
     });
     
   } catch (error) {
@@ -492,9 +490,9 @@ router.post('/loreal-notas/filtro-avanzado', async (req, res) => {
     
     // Agregar parámetros al request
     if (ruc) {
-      request.input('Ruc', sql.VarChar(20), ruc);
+      request.input('Documento', sql.VarChar(20), ruc);
     } else {
-      request.input('Ruc', sql.VarChar(20), null);
+      request.input('Documento', sql.VarChar(20), null);
     }
     
     if (fechaInicio) {
@@ -510,12 +508,12 @@ router.post('/loreal-notas/filtro-avanzado', async (req, res) => {
     }
     
     if (laboratorio) {
-      request.input('Laboratorio', sql.Char(2), laboratorio);
+      request.input('Laboratorio', sql.VarChar(2), laboratorio);
     } else {
-      request.input('Laboratorio', sql.Char(2), null);
+      request.input('Laboratorio', sql.VarChar(2), null);
     }
 
-    const result = await request.execute('sp_NotasCredito_Filtro');
+    const result = await request.execute('sp_Jhon_Reporte_NotasCredito');
 
     res.json({
       success: true,
@@ -549,9 +547,9 @@ router.post('/loreal-notas/filtro-avanzado/excel', async (req, res) => {
     
     // Agregar parámetros al request
     if (ruc) {
-      request.input('Ruc', sql.VarChar(20), ruc);
+      request.input('Documento', sql.VarChar(20), ruc);
     } else {
-      request.input('Ruc', sql.VarChar(20), null);
+      request.input('Documento', sql.VarChar(20), null);
     }
     
     if (fechaInicio) {
@@ -567,12 +565,12 @@ router.post('/loreal-notas/filtro-avanzado/excel', async (req, res) => {
     }
     
     if (laboratorio) {
-      request.input('Laboratorio', sql.Char(2), laboratorio);
+      request.input('Laboratorio', sql.VarChar(2), laboratorio);
     } else {
-      request.input('Laboratorio', sql.Char(2), null);
+      request.input('Laboratorio', sql.VarChar(2), null);
     }
 
-    const result = await request.execute('sp_NotasCredito_Filtro');
+    const result = await request.execute('sp_Jhon_Reporte_NotasCredito');
 
     if (result.recordset.length === 0) {
       return res.status(404).json({
@@ -585,9 +583,10 @@ router.post('/loreal-notas/filtro-avanzado/excel', async (req, res) => {
     const workbook = new excel.Workbook();
     const worksheet = workbook.addWorksheet('Notas de Crédito Filtro Avanzado');
     
-    // Definir las columnas
+    // Definir las columnas (incluyendo Fecha para filtro avanzado)
     const columns = [
       { header: 'Número', key: 'Numero', width: 15 },
+      { header: 'Fecha', key: 'Fecha', width: 15 },
       { header: 'Observación', key: 'Observacion', width: 30 },
       { header: 'Código Cliente', key: 'Codclie', width: 15 },
       { header: 'Documento', key: 'Documento', width: 15 },
