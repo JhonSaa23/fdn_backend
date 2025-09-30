@@ -1972,7 +1972,7 @@ router.post('/crear-pedido', async (req, res) => {
       tipo: parseInt(configuracion?.tipoDocumento) || 1, // 1=Factura, 2=Boleta
       cod: codConvertido, // Asegurar que sea un entero válido
       dire: clienteData.Direccion || '',
-      fecha: new Date(),
+      // fecha: new Date().toISOString().slice(0, 19).replace('T', ' '), // El SP usa getdate() en lugar del parámetro @fecha
       subtotal: subtotal, // Ya redondeado a 2 decimales
       igv: igvMonto, // Ya redondeado a 2 decimales
       total: total, // Ya redondeado a 2 decimales
@@ -1990,25 +1990,34 @@ router.post('/crear-pedido', async (req, res) => {
     
     
     // Ejecutar el stored procedure
-    const result = await transaction.request()
-      .input('nume', params.nume)
-      .input('tipo', params.tipo)
-      .input('cod', params.cod)
-      .input('dire', params.dire)
-      .input('fecha', params.fecha)
-      .input('subtotal', params.subtotal)
-      .input('igv', params.igv)
-      .input('total', params.total)
-      .input('moneda', params.moneda)
-      .input('cambio', params.cambio)
-      .input('ven', params.ven)
-      .input('dias', params.dias)
-      .input('condicion', params.condicion)
-      .input('estado', params.estado)
-      .input('observa', params.observa)
-      .input('conletra', params.conletra)
-      .input('urgente', params.urgente)
-      .input('representa', params.representa)
+    let result;
+    const fechaActual = new Date(); // Usar objeto Date de JavaScript
+    console.log('📅 [CREAR-PEDIDO] Usando fecha actual:', fechaActual.toISOString());
+    
+    // 1) Forzar interpretación DMY en la sesión (SOLUCIÓN CLAVE)
+    console.log('🔧 [CREAR-PEDIDO] Configurando DATEFORMAT dmy para la sesión...');
+    await transaction.request().batch("SET DATEFORMAT dmy;");
+    
+    // 2) Ejecutar el SP en la misma transacción/sesión
+    result = await transaction.request()
+      .input('nume', sql.VarChar(20), params.nume)
+      .input('tipo', sql.Int, params.tipo)
+      .input('cod', sql.Int, params.cod)
+      .input('dire', sql.VarChar(60), params.dire)
+      .input('fecha', sql.SmallDateTime, fechaActual) // Usar sql.SmallDateTime con objeto Date nativo
+      .input('subtotal', sql.Money, params.subtotal)
+      .input('igv', sql.Money, params.igv)
+      .input('total', sql.Money, params.total)
+      .input('moneda', sql.Int, params.moneda)
+      .input('cambio', sql.Decimal(9, 2), params.cambio)
+      .input('ven', sql.Int, params.ven)
+      .input('dias', sql.Int, params.dias)
+      .input('condicion', sql.Int, params.condicion)
+      .input('estado', sql.Int, params.estado)
+      .input('observa', sql.VarChar(150), params.observa)
+      .input('conletra', sql.Bit, params.conletra)
+      .input('urgente', sql.Bit, params.urgente)
+      .input('representa', sql.Int, params.representa)
       .execute('sp_PedidosVentas_Insertar');
     
     
@@ -2048,6 +2057,10 @@ router.post('/crear-pedido', async (req, res) => {
       try {
         await transaction.rollback();
         console.log('🔄 [CREAR-PEDIDO] Rollback ejecutado correctamente');
+        
+        // Revertir el correlativo si el pedido falló
+        await _revertirCorrelativo(numeroCorrelativo);
+        
       } catch (rollbackError) {
         console.error('❌ [CREAR-PEDIDO] Error en rollback:', rollbackError);
       }
@@ -2226,6 +2239,46 @@ function _construirNombreMaquina(nombreCompleto) {
     return `${primerNombre} ${iniciales}`;
   } else {
     return primerNombre;
+  }
+}
+
+/**
+ * Revierte el correlativo cuando un pedido falla
+ * Esto evita que el correlativo quede "perdido" cuando hay errores
+ */
+async function _revertirCorrelativo(numeroCorrelativo) {
+  try {
+    const pool = await getConnection();
+    
+    // Extraer el número del correlativo (ej: "Fdn-0000011" -> "11")
+    const match = numeroCorrelativo.match(/Fdn-(\d+)/);
+    if (!match) {
+      console.log('⚠️ [REVERTIR-CORRELATIVO] Formato de correlativo inválido:', numeroCorrelativo);
+      return;
+    }
+    
+    const numeroActual = parseInt(match[1]);
+    const numeroAnterior = numeroActual - 1;
+    const numeroAnteriorFormateado = `Fdn-${numeroAnterior.toString().padStart(7, '0')}`;
+    
+    console.log(`🔄 [REVERTIR-CORRELATIVO] Revirtiendo correlativo de ${numeroCorrelativo} a ${numeroAnteriorFormateado}`);
+    
+    // Actualizar la tabla tablas con el número anterior
+    const queryRevertir = `
+      UPDATE tablas 
+      SET c_describe = @numeroAnterior 
+      WHERE n_codtabla = 330 AND n_numero = 16
+    `;
+    
+    await pool.request()
+      .input('numeroAnterior', numeroAnteriorFormateado)
+      .query(queryRevertir);
+    
+    console.log(`✅ [REVERTIR-CORRELATIVO] Correlativo revertido exitosamente a: ${numeroAnteriorFormateado}`);
+    
+  } catch (error) {
+    console.error('❌ [REVERTIR-CORRELATIVO] Error revirtiendo correlativo:', error);
+    // No lanzar error para no afectar el flujo principal
   }
 }
 

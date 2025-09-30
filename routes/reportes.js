@@ -296,23 +296,24 @@ router.post('/concurso/actualizar', async (req, res) => {
 
 // Endpoint para actualizar la vista de Notas de Crédito Loreal
 router.post('/loreal-notas/view', async (req, res) => {
-  const { anio, mes } = req.body;
-  
-  if (!anio || !mes) {
-    return res.status(400).json({ 
-      success: false, 
-      error: 'Se requiere año y mes' 
-    });
-  }
-
   try {
-    const pool = await getConnection();
+    const { anio, mes } = req.body;
     
-    // Ejecutar el procedimiento almacenado para actualizar la vista
-    await pool.request()
-      .input('anio', sql.Int, parseInt(anio))
-      .input('mes', sql.Int, parseInt(mes))
-      .execute('dbo.sp_Jhon_ActualizarVistaNCLoral');
+    if (!anio || !mes) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Se requiere año y mes' 
+      });
+    }
+
+    const query = `
+      EXEC dbo.sp_Jhon_ActualizarVistaNCLoral @anio, @mes
+    `;
+
+    await executeQuery(query, {
+      anio: parseInt(anio),
+      mes: parseInt(mes)
+    });
     
     res.json({ 
       success: true, 
