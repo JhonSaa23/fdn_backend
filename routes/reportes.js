@@ -317,7 +317,7 @@ router.post('/loreal-notas/view', async (req, res) => {
     
     res.json({ 
       success: true, 
-      message: 'Vista actualizada correctamente' 
+      message: `Vista actualizada a ${anio}-${mes}` 
     });
     
   } catch (error) {
@@ -471,6 +471,177 @@ router.get('/loreal-notas/excel', async (req, res) => {
     
   } catch (error) {
     console.error('Error al generar Excel de Notas Loreal:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: error.message || 'Error al generar Excel' 
+    });
+  }
+});
+
+// Endpoint para filtro avanzado de Notas de Crédito Loreal
+router.post('/loreal-notas/filtro-avanzado', async (req, res) => {
+  try {
+    const { fechaInicio, fechaFin, ruc, laboratorio } = req.body;
+    
+    // Permitir filtros parciales - no validar que al menos uno esté presente
+    // El SP maneja los NULL correctamente
+
+    const pool = await getConnection();
+    
+    const request = pool.request();
+    
+    // Agregar parámetros al request
+    if (ruc) {
+      request.input('Ruc', sql.VarChar(20), ruc);
+    } else {
+      request.input('Ruc', sql.VarChar(20), null);
+    }
+    
+    if (fechaInicio) {
+      request.input('FechaIni', sql.Date, formatearFechaParaSQL(fechaInicio));
+    } else {
+      request.input('FechaIni', sql.Date, null);
+    }
+    
+    if (fechaFin) {
+      request.input('FechaFin', sql.Date, formatearFechaParaSQL(fechaFin));
+    } else {
+      request.input('FechaFin', sql.Date, null);
+    }
+    
+    if (laboratorio) {
+      request.input('Laboratorio', sql.Char(2), laboratorio);
+    } else {
+      request.input('Laboratorio', sql.Char(2), null);
+    }
+
+    const result = await request.execute('sp_NotasCredito_Filtro');
+
+    res.json({
+      success: true,
+      data: result.recordset,
+      totalRegistros: result.recordset.length,
+      filtros: {
+        fechaInicio,
+        fechaFin,
+        ruc,
+        laboratorio
+      }
+    });
+
+  } catch (error) {
+    console.error('Error al consultar filtro avanzado de Notas Loreal:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: error.message || 'Error al consultar filtro avanzado' 
+    });
+  }
+});
+
+// Endpoint para descargar Excel del filtro avanzado de Notas de Crédito Loreal
+router.post('/loreal-notas/filtro-avanzado/excel', async (req, res) => {
+  try {
+    const { fechaInicio, fechaFin, ruc, laboratorio } = req.body;
+    
+    const pool = await getConnection();
+    
+    const request = pool.request();
+    
+    // Agregar parámetros al request
+    if (ruc) {
+      request.input('Ruc', sql.VarChar(20), ruc);
+    } else {
+      request.input('Ruc', sql.VarChar(20), null);
+    }
+    
+    if (fechaInicio) {
+      request.input('FechaIni', sql.Date, formatearFechaParaSQL(fechaInicio));
+    } else {
+      request.input('FechaIni', sql.Date, null);
+    }
+    
+    if (fechaFin) {
+      request.input('FechaFin', sql.Date, formatearFechaParaSQL(fechaFin));
+    } else {
+      request.input('FechaFin', sql.Date, null);
+    }
+    
+    if (laboratorio) {
+      request.input('Laboratorio', sql.Char(2), laboratorio);
+    } else {
+      request.input('Laboratorio', sql.Char(2), null);
+    }
+
+    const result = await request.execute('sp_NotasCredito_Filtro');
+
+    if (result.recordset.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: 'No se encontraron datos para exportar'
+      });
+    }
+
+    // Crear el archivo Excel
+    const workbook = new excel.Workbook();
+    const worksheet = workbook.addWorksheet('Notas de Crédito Filtro Avanzado');
+    
+    // Definir las columnas
+    const columns = [
+      { header: 'Número', key: 'Numero', width: 15 },
+      { header: 'Observación', key: 'Observacion', width: 30 },
+      { header: 'Código Cliente', key: 'Codclie', width: 15 },
+      { header: 'Documento', key: 'Documento', width: 15 },
+      { header: 'Razón Social', key: 'Razon', width: 40 },
+      { header: 'Vendedor', key: 'Vendedor', width: 20 },
+      { header: 'Código Producto', key: 'Codpro', width: 15 },
+      { header: 'Producto', key: 'Nombre', width: 40 },
+      { header: 'Lote', key: 'Lote', width: 15 },
+      { header: 'Vencimiento', key: 'Vencimiento', width: 15 },
+      { header: 'Cantidad', key: 'Cantidad', width: 15 },
+      { header: 'Precio', key: 'Precio', width: 15 },
+      { header: 'Descuento 1', key: 'Descuento1', width: 15 },
+      { header: 'Descuento 2', key: 'Descuento2', width: 15 },
+      { header: 'Descuento 3', key: 'Descuento3', width: 15 },
+      { header: 'Subtotal', key: 'Subtotal', width: 15 }
+    ];
+
+    worksheet.columns = columns;
+
+    // Agregar los datos como tabla
+    worksheet.addTable({
+      name: 'NotasCreditoFiltroAvanzado',
+      ref: 'A1',
+      headerRow: true,
+      columns: columns.map(col => ({ name: col.header })),
+      rows: result.recordset.map(row => columns.map(col => row[col.key]))
+    });
+
+    // Estilo de cabecera
+    worksheet.getRow(1).font = { bold: true };
+    worksheet.getRow(1).fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FFB6D7A8' }
+    };
+
+    // Generar nombre de archivo
+    let filename = 'Notas_Credito_Filtro_Avanzado';
+    if (fechaInicio) filename += `_desde_${fechaInicio}`;
+    if (fechaFin) filename += `_hasta_${fechaFin}`;
+    if (ruc) filename += `_RUC_${ruc}`;
+    if (laboratorio) filename += `_Lab_${laboratorio}`;
+    filename += '.xlsx';
+
+    // Configurar respuesta
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    
+    // Enviar archivo
+    await workbook.xlsx.write(res);
+    res.end();
+    
+  } catch (error) {
+    console.error('Error al generar Excel del filtro avanzado de Notas Loreal:', error);
     res.status(500).json({ 
       success: false, 
       error: error.message || 'Error al generar Excel' 
