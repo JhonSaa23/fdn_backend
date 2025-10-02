@@ -60,6 +60,136 @@ router.get('/consulta/:codigos', async (req, res) => {
     }
 });
 
+// Endpoint para obtener información detallada de un saldo específico
+router.get('/saldo-detalle/:codpro/:lote/:vencimiento', async (req, res) => {
+    try {
+        const { codpro, lote, vencimiento } = req.params;
+        const pool = await getConnection();
+        
+        // Limpiar y formatear parámetros
+        const codproLimpio = codpro.trim();
+        const loteLimpio = lote.trim();
+        
+        // Convertir fecha ISO a formato de fecha simple
+        let fechaFormateada;
+        try {
+            const fecha = new Date(vencimiento);
+            fechaFormateada = fecha.toISOString().split('T')[0]; // YYYY-MM-DD
+        } catch (error) {
+            fechaFormateada = vencimiento.split('T')[0]; // Fallback
+        }
+        
+        console.log(`🔍 [SALDO-DETALLE] Consultando: ${codproLimpio}, lote: ${loteLimpio}, vencimiento: ${fechaFormateada}`);
+        
+        // 1. Primero verificar si existe el saldo con una consulta más flexible
+        console.log(`🔍 [SALDO-DETALLE] Buscando saldo con parámetros exactos...`);
+        const saldoResult = await pool.request()
+            .input('codpro', sql.VarChar, codproLimpio)
+            .input('lote', sql.VarChar, loteLimpio)
+            .input('vencimiento', sql.Date, fechaFormateada)
+            .query(`
+                SELECT codpro, almacen, lote, vencimiento, saldo 
+                FROM saldos 
+                WHERE codpro = @codpro AND lote = @lote AND vencimiento = @vencimiento
+            `);
+        
+        console.log(`🔍 [SALDO-DETALLE] Resultados encontrados: ${saldoResult.recordset.length}`);
+        
+        
+        let saldo;
+        if (saldoResult.recordset.length > 0) {
+            saldo = saldoResult.recordset[0];
+        } else {
+            // Intentar con búsqueda flexible
+            const saldoFlexibleResult = await pool.request()
+                .input('codpro', sql.VarChar, codproLimpio)
+                .input('lote', sql.VarChar, loteLimpio)
+                .query(`
+                    SELECT codpro, almacen, lote, vencimiento, saldo 
+                    FROM saldos 
+                    WHERE codpro = @codpro AND lote = @lote
+                    ORDER BY vencimiento DESC
+                `);
+            
+            if (saldoFlexibleResult.recordset.length === 0) {
+                return res.status(404).json({ message: 'Saldo no encontrado' });
+            }
+            
+            saldo = saldoFlexibleResult.recordset[0];
+            console.log(`🔍 [SALDO-DETALLE] Usando saldo de búsqueda flexible:`, saldo);
+        }
+        
+        // 2. Obtener información del detalle de compra
+        const detalleResult = await pool.request()
+            .input('codpro', sql.VarChar, codproLimpio)
+            .input('lote', sql.VarChar, loteLimpio)
+            .query(`
+                SELECT numero, Codpro, lote, Vencimiento, Cantidad, Faltan, sobran, mal 
+                FROM detcom 
+                WHERE Codpro = @codpro AND lote = @lote
+            `);
+        
+        let detalleInfo = null;
+        let facturaInfo = null;
+        
+        if (detalleResult.recordset.length > 0) {
+            detalleInfo = detalleResult.recordset[0];
+            
+            // 3. Obtener información de la factura
+            const facturaResult = await pool.request()
+                .input('numero', sql.VarChar, detalleInfo.numero.trim())
+                .query(`
+                    SELECT numero, FecProc 
+                    FROM doccom 
+                    WHERE numero = @numero
+                `);
+            
+            if (facturaResult.recordset.length > 0) {
+                facturaInfo = facturaResult.recordset[0];
+            }
+        }
+        
+        // Mapear nombres de almacenes
+        const almacenes = {
+            1: 'Farmacos',
+            2: 'Moche JPS',
+            3: 'Canjes',
+            4: 'Primavera',
+            5: 'Moche Maribel'
+        };
+        
+        const respuesta = {
+            codigoProducto: saldo.codpro,
+            lote: saldo.lote,
+            vencimiento: saldo.vencimiento,
+            saldo: saldo.saldo,
+            numeroAlmacen: saldo.almacen,
+            nombreAlmacen: almacenes[saldo.almacen] || `Almacén ${saldo.almacen}`,
+            cantidadComprada: detalleInfo?.Cantidad || null,
+            fechaIngreso: facturaInfo?.FecProc || null,
+            facturaCompra: detalleInfo?.numero || null,
+            faltan: detalleInfo?.Faltan || null,
+            sobran: detalleInfo?.sobran || null,
+            mal: detalleInfo?.mal || null
+        };
+        
+        console.log(`✅ [SALDO-DETALLE] Información obtenida para ${codproLimpio}`);
+        
+        res.json({
+            success: true,
+            data: respuesta
+        });
+        
+    } catch (error) {
+        console.error('❌ [SALDO-DETALLE] Error:', error);
+        res.status(500).json({ 
+            success: false, 
+            message: 'Error al obtener información del saldo', 
+            error: error.message 
+        });
+    }
+});
+
 // Endpoint para verificar saldos de productos - OPTIMIZADO SIN CONSULTAS BD
 router.post('/verificar-saldos', async (req, res) => {
     try {
