@@ -25,14 +25,10 @@ class WhatsAppController {
       const numeroFormateado = this.formatearNumero(numeroCelular);
 
       // Mensaje personalizado para el código
-      const mensaje = `🔐 *Código de Verificación - Fármacos del Norte*
+      const mensaje = `🔐 *${codigo} es tu Código de Verificación*
 
 Hola ${nombreUsuario},
-
-Tu código de verificación es: *${codigo}*
-
 ⏰ Este código expira en 1 minuto.
-
 Si no solicitaste este código, ignora este mensaje.
 
 ---
