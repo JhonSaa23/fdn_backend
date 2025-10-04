@@ -1,7 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { executeQuery } = require('../database'); // Asumiendo que esto maneja tu conexión y ejecución de DB
-const sql = require('mssql');
+const { executeQuery, getConnection, sql } = require('../database'); // Asumiendo que esto maneja tu conexión y ejecución de DB
 const PDFDocument = require('pdfkit');
 
 /**
@@ -10,33 +9,51 @@ const PDFDocument = require('pdfkit');
  */
 router.get('/tabla', async (req, res) => {
   try {
-    const query = `
-      SELECT 
-        k.numero,
-        k.documento,
-        CONVERT(varchar, k.fecha, 103) AS fecha,
-        k.Tipo,
-        k.clase,
-        k.CantEnt,
-        k.CantSal,
-        CASE 
-          WHEN dc.Vendedor IS NOT NULL AND e.Codemp IS NOT NULL 
-          THEN CONCAT(dc.Vendedor, ' - ', e.Nombre)
-          WHEN dc.Vendedor IS NOT NULL 
-          THEN CONCAT(dc.Vendedor, ' - Sin nombre')
-          ELSE ''
-        END AS Vendedor,
-        k.costo,
-        k.venta,
-        k.stock,
-        k.CostoP
-      FROM Kardex k WITH(NOLOCK)
-      LEFT JOIN Doccab dc WITH(NOLOCK) ON k.documento = dc.Numero
-      LEFT JOIN Empleados e WITH(NOLOCK) ON dc.Vendedor = e.Codemp
-      ORDER BY k.Fecha DESC
-    `;
-    const result = await executeQuery(query);
-    res.json(result.recordset);
+    const { getConnection } = require('../database');
+    const pool = await getConnection();
+    
+    // Usar una transacción para mantener la sesión
+    const transaction = pool.transaction();
+    await transaction.begin();
+    
+    try {
+      // Configurar DATEFORMAT dmy en la misma transacción
+      await transaction.request().batch("SET DATEFORMAT dmy;");
+      
+      const query = `
+        SELECT 
+          k.numero,
+          k.documento,
+          CONVERT(varchar, k.fecha, 103) AS fecha,
+          k.Tipo,
+          k.clase,
+          k.CantEnt,
+          k.CantSal,
+          CASE 
+            WHEN dc.Vendedor IS NOT NULL AND e.Codemp IS NOT NULL 
+            THEN CONCAT(dc.Vendedor, ' - ', e.Nombre)
+            WHEN dc.Vendedor IS NOT NULL 
+            THEN CONCAT(dc.Vendedor, ' - Sin nombre')
+            ELSE ''
+          END AS Vendedor,
+          k.costo,
+          k.venta,
+          k.stock,
+          k.CostoP
+        FROM Kardex k WITH(NOLOCK)
+        LEFT JOIN Doccab dc WITH(NOLOCK) ON k.documento = dc.Numero
+        LEFT JOIN Empleados e WITH(NOLOCK) ON dc.Vendedor = e.Codemp
+        ORDER BY k.Fecha DESC
+      `;
+      
+      const result = await transaction.request().query(query);
+      await transaction.commit();
+      
+      res.json(result.recordset);
+    } catch (error) {
+      await transaction.rollback();
+      throw error;
+    }
   } catch (error) {
     console.error('Error al obtener datos del kardex:', error);
     res.status(500).json({ error: 'Error al obtener datos del kardex', details: error.message });
@@ -49,98 +66,123 @@ router.get('/tabla', async (req, res) => {
  */
 router.post('/consultar', async (req, res) => {
   try {
-    const { documento, fechaDesde, fechaHasta, codpro, lote, movimiento, clase, vendedor } = req.body;
+    const { getConnection } = require('../database');
+    const pool = await getConnection();
+    
+    // Usar una transacción para mantener la sesión
+    const transaction = pool.transaction();
+    await transaction.begin();
+    
+    try {
+      // Configurar DATEFORMAT dmy en la misma transacción
+      await transaction.request().batch("SET DATEFORMAT dmy;");
+      
+      const { documento, fechaDesde, fechaHasta, codpro, lote, movimiento, clase, vendedor } = req.body;
 
-    let query = `
-      SELECT 
-        k.numero,
-        k.documento,
-        CONVERT(varchar, k.fecha, 103) AS fecha,
-        k.Tipo,
-        k.clase,
-        k.CantEnt,
-        k.CantSal,
-        CASE 
-          WHEN dc.Vendedor IS NOT NULL AND e.Codemp IS NOT NULL 
-          THEN CONCAT(dc.Vendedor, ' - ', e.Nombre)
-          WHEN dc.Vendedor IS NOT NULL 
-          THEN CONCAT(dc.Vendedor, ' - Sin nombre')
-          ELSE ''
-        END AS Vendedor,
-        k.costo,
-        k.venta,
-        k.stock,
-        k.CostoP
-      FROM Kardex k WITH(NOLOCK)
-      LEFT JOIN Doccab dc WITH(NOLOCK) ON k.documento = dc.Numero
-      LEFT JOIN Empleados e WITH(NOLOCK) ON dc.Vendedor = e.Codemp
-      WHERE 1=1
-    `;
+      let query = `
+        SELECT 
+          k.numero,
+          k.documento,
+          CONVERT(varchar, k.fecha, 103) AS fecha,
+          k.Tipo,
+          k.clase,
+          k.CantEnt,
+          k.CantSal,
+          CASE 
+            WHEN dc.Vendedor IS NOT NULL AND e.Codemp IS NOT NULL 
+            THEN CONCAT(dc.Vendedor, ' - ', e.Nombre)
+            WHEN dc.Vendedor IS NOT NULL 
+            THEN CONCAT(dc.Vendedor, ' - Sin nombre')
+            ELSE ''
+          END AS Vendedor,
+          k.costo,
+          k.venta,
+          k.stock,
+          k.CostoP
+        FROM Kardex k WITH(NOLOCK)
+        LEFT JOIN Doccab dc WITH(NOLOCK) ON k.documento = dc.Numero
+        LEFT JOIN Empleados e WITH(NOLOCK) ON dc.Vendedor = e.Codemp
+        WHERE 1=1
+      `;
 
-    const params = {};
+      const params = {};
 
-    // Filtro por código de producto
-    if (codpro && codpro.trim()) {
-      query += ' AND k.numero LIKE @codpro';
-      params.codpro = `%${codpro.trim()}%`;
-    }
-
-    // Filtro por documento
-    if (documento && documento.trim()) {
-      query += ' AND k.documento LIKE @documento';
-      params.documento = `%${documento.trim()}%`;
-    }
-
-    // Filtro por fecha desde
-    if (fechaDesde && fechaDesde.trim()) {
-      query += ' AND CONVERT(date, k.fecha) >= @fechaDesde';
-      params.fechaDesde = fechaDesde.trim();
-    }
-
-    // Filtro por fecha hasta
-    if (fechaHasta && fechaHasta.trim()) {
-      query += ' AND CONVERT(date, k.fecha) <= @fechaHasta';
-      params.fechaHasta = fechaHasta.trim();
-    }
-
-    // Filtro por lote (removido ya que la tabla Kardex no tiene columna lote)
-    // if (lote && lote.trim()) {
-    //   query += ' AND k.lote LIKE @lote';
-    //   params.lote = `%${lote.trim()}%`;
-    // }
-
-    // Filtro por tipo de movimiento (entrada/salida)
-    if (movimiento && movimiento.trim()) {
-      if (movimiento === '1') {
-        // Solo entradas (CantEnt > 0)
-        query += ' AND k.CantEnt > 0';
-      } else if (movimiento === '2') {
-        // Solo salidas (CantSal > 0)
-        query += ' AND k.CantSal > 0';
+      // Filtro por código de producto
+      if (codpro && codpro.trim()) {
+        query += ' AND k.numero LIKE @codpro';
+        params.codpro = `%${codpro.trim()}%`;
       }
+
+      // Filtro por documento
+      if (documento && documento.trim()) {
+        query += ' AND k.documento LIKE @documento';
+        params.documento = `%${documento.trim()}%`;
+      }
+
+      // Filtro por fecha desde
+      if (fechaDesde && fechaDesde.trim()) {
+        query += ' AND CONVERT(date, k.fecha) >= @fechaDesde';
+        params.fechaDesde = fechaDesde.trim();
+      }
+
+      // Filtro por fecha hasta
+      if (fechaHasta && fechaHasta.trim()) {
+        query += ' AND CONVERT(date, k.fecha) <= @fechaHasta';
+        params.fechaHasta = fechaHasta.trim();
+      }
+
+      // Filtro por lote (removido ya que la tabla Kardex no tiene columna lote)
+      // if (lote && lote.trim()) {
+      //   query += ' AND k.lote LIKE @lote';
+      //   params.lote = `%${lote.trim()}%`;
+      // }
+
+      // Filtro por tipo de movimiento (entrada/salida)
+      if (movimiento && movimiento.trim()) {
+        if (movimiento === '1') {
+          // Solo entradas (CantEnt > 0)
+          query += ' AND k.CantEnt > 0';
+        } else if (movimiento === '2') {
+          // Solo salidas (CantSal > 0)
+          query += ' AND k.CantSal > 0';
+        }
+      }
+
+      // Filtro por clase
+      if (clase && clase.trim()) {
+        query += ' AND k.clase LIKE @clase';
+        params.clase = `%${clase.trim()}%`;
+      }
+
+      // Filtro por vendedor
+      if (vendedor && vendedor.trim()) {
+        query += ' AND (dc.Vendedor LIKE @vendedor OR e.Nombre LIKE @vendedor)';
+        params.vendedor = `%${vendedor.trim()}%`;
+      }
+
+      // Ordenar por fecha descendente para ver los más recientes primero
+      query += ' ORDER BY k.fecha DESC, k.numero DESC';
+
+      console.log('Ejecutando consulta kardex:', query);
+      console.log('Parámetros:', params);
+
+      const request = transaction.request();
+      
+      // Agregar parámetros
+      Object.entries(params).forEach(([key, value]) => {
+        if (value !== null && value !== undefined) {
+          request.input(key, sql.VarChar, value.toString());
+        }
+      });
+
+      const result = await request.query(query);
+      await transaction.commit();
+      
+      res.json(result.recordset);
+    } catch (error) {
+      await transaction.rollback();
+      throw error;
     }
-
-    // Filtro por clase
-    if (clase && clase.trim()) {
-      query += ' AND k.clase LIKE @clase';
-      params.clase = `%${clase.trim()}%`;
-    }
-
-    // Filtro por vendedor
-    if (vendedor && vendedor.trim()) {
-      query += ' AND (dc.Vendedor LIKE @vendedor OR e.Nombre LIKE @vendedor)';
-      params.vendedor = `%${vendedor.trim()}%`;
-    }
-
-    // Ordenar por fecha descendente para ver los más recientes primero
-    query += ' ORDER BY k.fecha DESC, k.numero DESC';
-
-    console.log('Ejecutando consulta kardex:', query);
-    console.log('Parámetros:', params);
-
-    const result = await executeQuery(query, params);
-    res.json(result.recordset);
-
   } catch (error) {
     console.error('Error al consultar kardex:', error);
     res.status(500).json({ 
@@ -193,53 +235,69 @@ router.post('/ejecutar-procedimiento', async (req, res) => {
   const loteFixed = lote.toString().trim().padEnd(15, ' ');
 
   try {
-    console.log('Ejecutando sp_kardex con:', { codFixed, loteFixed, formattedFechaInicio, formattedFechaFin });
+    const pool = await getConnection();
+    
+    // Usar una transacción para mantener la sesión
+    const transaction = pool.transaction();
+    await transaction.begin();
+    
+    try {
+      // Configurar DATEFORMAT dmy en la misma transacción
+      await transaction.request().batch("SET DATEFORMAT dmy;");
+      
+      console.log('Ejecutando sp_kardex con:', { codFixed, loteFixed, formattedFechaInicio, formattedFechaFin });
 
-    // **** CAMBIO CLAVE AQUÍ: Construir la consulta SQL con las fechas como literales ****
-    // Esto evita que el driver mssql intente inferir el tipo o formato para los parámetros de fecha,
-    // y en su lugar, SQL Server los interpretará directamente como cadenas de fecha válidas.
-    const spExecutionQuery = `
-      EXEC dbo.sp_kardex
-        @c = '${codFixed}',
-        @lote = '${loteFixed}',
-        @fec1 = '${formattedFechaInicio}',
-        @fec2 = '${formattedFechaFin}';
-    `;
+      // **** CAMBIO CLAVE AQUÍ: Construir la consulta SQL con las fechas como literales ****
+      // Esto evita que el driver mssql intente inferir el tipo o formato para los parámetros de fecha,
+      // y en su lugar, SQL Server los interpretará directamente como cadenas de fecha válidas.
+      const spExecutionQuery = `
+        EXEC dbo.sp_kardex
+          @c = '${codFixed}',
+          @lote = '${loteFixed}',
+          @fec1 = '${formattedFechaInicio}',
+          @fec2 = '${formattedFechaFin}';
+      `;
 
-    // 5) Ejecutar el SP. Nota: No pasamos el segundo objeto de parámetros para las fechas,
-    // ya que están incrustadas directamente en la cadena de consulta.
-    // Solo pasamos los parámetros de cadena que no son fechas.
-    await executeQuery(spExecutionQuery);
+      // 5) Ejecutar el SP. Nota: No pasamos el segundo objeto de parámetros para las fechas,
+      // ya que están incrustadas directamente en la cadena de consulta.
+      // Solo pasamos los parámetros de cadena que no son fechas.
+      await transaction.request().query(spExecutionQuery);
 
-    // 6) Leer y devolver resultados de Kardex
-    const result = await executeQuery(
-      `
-          SELECT k.numero,
-                k.documento,
-                CONVERT(varchar, k.fecha, 103) AS fecha,
-                k.Tipo,
-                k.clase,
-                k.CantEnt,
-                k.CantSal,
-                CASE 
-                  WHEN dc.Vendedor IS NOT NULL AND e.Codemp IS NOT NULL 
-                  THEN CONCAT(dc.Vendedor, ' - ', e.Nombre)
-                  WHEN dc.Vendedor IS NOT NULL 
-                  THEN CONCAT(dc.Vendedor, ' - Sin nombre')
-                  ELSE ''
-                END AS Vendedor,
-                k.costo,
-                k.venta,
-                k.stock,
-                k.CostoP
-          FROM Kardex k
-          LEFT JOIN Doccab dc WITH(NOLOCK) ON k.documento = dc.Numero
-          LEFT JOIN Empleados e WITH(NOLOCK) ON dc.Vendedor = e.Codemp
-          ORDER BY k.fecha ASC;
-      `
-    );
+      // 6) Leer y devolver resultados de Kardex
+      const result = await transaction.request().query(
+        `
+            SELECT k.numero,
+                  k.documento,
+                  CONVERT(varchar, k.fecha, 103) AS fecha,
+                  k.Tipo,
+                  k.clase,
+                  k.CantEnt,
+                  k.CantSal,
+                  CASE 
+                    WHEN dc.Vendedor IS NOT NULL AND e.Codemp IS NOT NULL 
+                    THEN CONCAT(dc.Vendedor, ' - ', e.Nombre)
+                    WHEN dc.Vendedor IS NOT NULL 
+                    THEN CONCAT(dc.Vendedor, ' - Sin nombre')
+                    ELSE ''
+                  END AS Vendedor,
+                  k.costo,
+                  k.venta,
+                  k.stock,
+                  k.CostoP
+            FROM Kardex k
+            LEFT JOIN Doccab dc WITH(NOLOCK) ON k.documento = dc.Numero
+            LEFT JOIN Empleados e WITH(NOLOCK) ON dc.Vendedor = e.Codemp
+            ORDER BY k.fecha ASC;
+        `
+      );
+      
+      await transaction.commit();
 
-    return res.json({ success: true, totalRows: result.recordset.length, data: result.recordset });
+      return res.json({ success: true, totalRows: result.recordset.length, data: result.recordset });
+    } catch (error) {
+      await transaction.rollback();
+      throw error;
+    }
   } catch (error) {
     console.error('Error al ejecutar sp_kardex:', error);
     let errorMessage = 'Error interno al ejecutar sp_kardex';
@@ -603,92 +661,116 @@ router.get('/cliente-documento/:numero', async (req, res) => {
  */
 router.post('/consultar-ventas', async (req, res) => {
   try {
-    const { codigo, lote, fechaDesde, fechaHasta, vendedor } = req.body;
+    const pool = await getConnection();
+    
+    // Usar una transacción para mantener la sesión
+    const transaction = pool.transaction();
+    await transaction.begin();
+    
+    try {
+      // Configurar DATEFORMAT dmy en la misma transacción
+      await transaction.request().batch("SET DATEFORMAT dmy;");
+      
+      const { codigo, lote, fechaDesde, fechaHasta, vendedor } = req.body;
 
-         let query = `
-       SELECT 
-         k.documento,
-         CONVERT(varchar, k.fecha, 103) AS fecha,
-         k.CantSal as cantidad,
-         CASE 
-           WHEN dc.Vendedor IS NOT NULL AND e.Codemp IS NOT NULL 
-           THEN CONCAT(dc.Vendedor, ' - ', e.Nombre)
-           WHEN dc.Vendedor IS NOT NULL 
-           THEN CONCAT(dc.Vendedor, ' - Sin nombre')
-           ELSE ''
-         END AS Vendedor,
-         ISNULL(dd.codpro, dp.codpro) as codigoProducto,
-         ISNULL(p.Nombre, 'Sin nombre') as nombreProducto,
-         ISNULL(dd.Lote, 'Sin lote') as loteProducto,
-         ISNULL(c.Razon, 'Sin cliente') as nombreCliente,
-         ISNULL(c.documento, 'Sin RUC') as rucCliente,
-         k.costo,
-         CAST(LTRIM(RTRIM(k.venta)) AS DECIMAL(10,2)) as venta
-       FROM Kardex k WITH(NOLOCK)
-       LEFT JOIN Doccab dc WITH(NOLOCK) ON k.documento = dc.Numero
-       LEFT JOIN Empleados e WITH(NOLOCK) ON dc.Vendedor = e.Codemp
-       LEFT JOIN Clientes c WITH(NOLOCK) ON dc.CodClie = c.Codclie
-       LEFT JOIN Docdet dd WITH(NOLOCK) ON k.documento = dd.numero
-       LEFT JOIN DocdetPed dp WITH(NOLOCK) ON k.documento = dp.numero
-       LEFT JOIN Productos p WITH(NOLOCK) ON LTRIM(RTRIM(ISNULL(dd.codpro, dp.codpro))) = LTRIM(RTRIM(p.CodPro))
-       WHERE k.CantSal > 0 
-         AND k.clase = 'Ventas'
-     `;
+           let query = `
+         SELECT 
+           k.documento,
+           CONVERT(varchar, k.fecha, 103) AS fecha,
+           k.CantSal as cantidad,
+           CASE 
+             WHEN dc.Vendedor IS NOT NULL AND e.Codemp IS NOT NULL 
+             THEN CONCAT(dc.Vendedor, ' - ', e.Nombre)
+             WHEN dc.Vendedor IS NOT NULL 
+             THEN CONCAT(dc.Vendedor, ' - Sin nombre')
+             ELSE ''
+           END AS Vendedor,
+           ISNULL(dd.codpro, dp.codpro) as codigoProducto,
+           ISNULL(p.Nombre, 'Sin nombre') as nombreProducto,
+           ISNULL(dd.Lote, 'Sin lote') as loteProducto,
+           ISNULL(c.Razon, 'Sin cliente') as nombreCliente,
+           ISNULL(c.documento, 'Sin RUC') as rucCliente,
+           k.costo,
+           CAST(LTRIM(RTRIM(k.venta)) AS DECIMAL(10,2)) as venta
+         FROM Kardex k WITH(NOLOCK)
+         LEFT JOIN Doccab dc WITH(NOLOCK) ON k.documento = dc.Numero
+         LEFT JOIN Empleados e WITH(NOLOCK) ON dc.Vendedor = e.Codemp
+         LEFT JOIN Clientes c WITH(NOLOCK) ON dc.CodClie = c.Codclie
+         LEFT JOIN Docdet dd WITH(NOLOCK) ON k.documento = dd.numero
+         LEFT JOIN DocdetPed dp WITH(NOLOCK) ON k.documento = dp.numero
+         LEFT JOIN Productos p WITH(NOLOCK) ON LTRIM(RTRIM(ISNULL(dd.codpro, dp.codpro))) = LTRIM(RTRIM(p.CodPro))
+         WHERE k.CantSal > 0 
+           AND k.clase = 'Ventas'
+       `;
 
-    const params = {};
+      const params = {};
 
-         // Filtro por código de producto (buscar en Docdet.codpro o DocdetPed.codpro)
-     if (codigo && codigo.trim()) {
-       query += ' AND (dd.codpro LIKE @codigo OR dp.codpro LIKE @codigo)';
-       params.codigo = `%${codigo.trim()}%`;
-     }
+           // Filtro por código de producto (buscar en Docdet.codpro o DocdetPed.codpro)
+       if (codigo && codigo.trim()) {
+         query += ' AND (dd.codpro LIKE @codigo OR dp.codpro LIKE @codigo)';
+         params.codigo = `%${codigo.trim()}%`;
+       }
 
-    // Filtro por lote (removido ya que la tabla Kardex no tiene columna lote)
-    // if (lote && lote.trim()) {
-    //   query += ' AND k.lote LIKE @lote';
-    //   params.lote = `%${lote.trim()}%`;
-    // }
+      // Filtro por lote (removido ya que la tabla Kardex no tiene columna lote)
+      // if (lote && lote.trim()) {
+      //   query += ' AND k.lote LIKE @lote';
+      //   params.lote = `%${lote.trim()}%`;
+      // }
 
-    // Filtro por fecha desde
-    if (fechaDesde && fechaDesde.trim()) {
-      query += ' AND CONVERT(date, k.fecha) >= @fechaDesde';
-      params.fechaDesde = fechaDesde.trim();
-    }
-
-    // Filtro por fecha hasta
-    if (fechaHasta && fechaHasta.trim()) {
-      query += ' AND CONVERT(date, k.fecha) <= @fechaHasta';
-      params.fechaHasta = fechaHasta.trim();
-    }
-
-    // Si no se especifican fechas, mostrar todos los registros (sin filtro de fecha)
-    // if (!fechaDesde && !fechaHasta) {
-    //   query += ' AND k.fecha >= DATEADD(day, -30, GETDATE())';
-    // }
-
-    // Filtro por vendedor (exacto por código o nombre)
-    if (vendedor && vendedor.trim()) {
-      // Si contiene " - ", es un vendedor seleccionado del autocompletado
-      if (vendedor.includes(' - ')) {
-        const codigoVendedor = vendedor.split(' - ')[0].trim();
-        query += ' AND dc.Vendedor = @vendedor';
-        params.vendedor = codigoVendedor;
-      } else {
-        // Búsqueda por código exacto o nombre que contenga
-        query += ' AND (dc.Vendedor = @vendedor OR e.Nombre LIKE @vendedor)';
-        params.vendedor = vendedor.trim();
+      // Filtro por fecha desde
+      if (fechaDesde && fechaDesde.trim()) {
+        query += ' AND CONVERT(date, k.fecha) >= @fechaDesde';
+        params.fechaDesde = fechaDesde.trim();
       }
+
+      // Filtro por fecha hasta
+      if (fechaHasta && fechaHasta.trim()) {
+        query += ' AND CONVERT(date, k.fecha) <= @fechaHasta';
+        params.fechaHasta = fechaHasta.trim();
+      }
+
+      // Si no se especifican fechas, mostrar todos los registros (sin filtro de fecha)
+      // if (!fechaDesde && !fechaHasta) {
+      //   query += ' AND k.fecha >= DATEADD(day, -30, GETDATE())';
+      // }
+
+      // Filtro por vendedor (exacto por código o nombre)
+      if (vendedor && vendedor.trim()) {
+        // Si contiene " - ", es un vendedor seleccionado del autocompletado
+        if (vendedor.includes(' - ')) {
+          const codigoVendedor = vendedor.split(' - ')[0].trim();
+          query += ' AND dc.Vendedor = @vendedor';
+          params.vendedor = codigoVendedor;
+        } else {
+          // Búsqueda por código exacto o nombre que contenga
+          query += ' AND (dc.Vendedor = @vendedor OR e.Nombre LIKE @vendedor)';
+          params.vendedor = vendedor.trim();
+        }
+      }
+
+      // Ordenar por fecha descendente
+      query += ' ORDER BY k.fecha DESC, k.documento DESC';
+
+      console.log('Ejecutando consulta de ventas:', query);
+      console.log('Parámetros:', params);
+
+      const request = transaction.request();
+      
+      // Agregar parámetros
+      Object.entries(params).forEach(([key, value]) => {
+        if (value !== null && value !== undefined) {
+          request.input(key, sql.VarChar, value.toString());
+        }
+      });
+
+      const result = await request.query(query);
+      await transaction.commit();
+      
+      res.json(result.recordset);
+    } catch (error) {
+      await transaction.rollback();
+      throw error;
     }
-
-    // Ordenar por fecha descendente
-    query += ' ORDER BY k.fecha DESC, k.documento DESC';
-
-    console.log('Ejecutando consulta de ventas:', query);
-    console.log('Parámetros:', params);
-
-    const result = await executeQuery(query, params);
-    res.json(result.recordset);
-
   } catch (error) {
     console.error('Error al consultar ventas:', error);
     res.status(500).json({ 

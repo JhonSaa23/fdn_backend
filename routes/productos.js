@@ -119,33 +119,51 @@ router.get('/saldo-detalle/:codpro/:lote/:vencimiento', async (req, res) => {
             console.log(`🔍 [SALDO-DETALLE] Usando saldo de búsqueda flexible:`, saldo);
         }
         
-        // 2. Obtener información del detalle de compra
+        // 2. Obtener información de TODAS las facturas de compra
         const detalleResult = await pool.request()
             .input('codpro', sql.VarChar, codproLimpio)
             .input('lote', sql.VarChar, loteLimpio)
             .query(`
-                SELECT numero, Codpro, lote, Vencimiento, Cantidad, Faltan, sobran, mal 
+                SELECT numero, Codpro, lote, Vencimiento, Cantidad, Faltan, sobran, mal, Precio, Subtotal
                 FROM detcom 
                 WHERE Codpro = @codpro AND lote = @lote
+                ORDER BY numero
             `);
         
-        let detalleInfo = null;
-        let facturaInfo = null;
+        let facturasCompletas = [];
         
         if (detalleResult.recordset.length > 0) {
-            detalleInfo = detalleResult.recordset[0];
-            
-            // 3. Obtener información de la factura
-            const facturaResult = await pool.request()
-                .input('numero', sql.VarChar, detalleInfo.numero.trim())
-                .query(`
-                    SELECT numero, FecProc 
-                    FROM doccom 
-                    WHERE numero = @numero
-                `);
-            
-            if (facturaResult.recordset.length > 0) {
-                facturaInfo = facturaResult.recordset[0];
+            // Procesar cada factura encontrada
+            for (const detalle of detalleResult.recordset) {
+                // Obtener información de la factura (doccom)
+                const facturaResult = await pool.request()
+                    .input('numero', sql.VarChar, detalle.numero.trim())
+                    .query(`
+                        SELECT numero, FecProc, Codprov
+                        FROM doccom 
+                        WHERE numero = @numero
+                    `);
+                
+                let facturaInfo = null;
+                if (facturaResult.recordset.length > 0) {
+                    facturaInfo = facturaResult.recordset[0];
+                }
+                
+                // Crear objeto completo de la factura
+                facturasCompletas.push({
+                    numero: detalle.numero,
+                    codpro: detalle.Codpro,
+                    lote: detalle.lote,
+                    vencimiento: detalle.Vencimiento,
+                    cantidad: detalle.Cantidad,
+                    precio: detalle.Precio,
+                    subtotal: detalle.Subtotal,
+                    faltan: detalle.Faltan,
+                    sobran: detalle.sobran,
+                    mal: detalle.mal,
+                    fechaIngreso: facturaInfo?.FecProc || null,
+                    codigoProveedor: facturaInfo?.Codprov || null
+                });
             }
         }
         
@@ -165,12 +183,7 @@ router.get('/saldo-detalle/:codpro/:lote/:vencimiento', async (req, res) => {
             saldo: saldo.saldo,
             numeroAlmacen: saldo.almacen,
             nombreAlmacen: almacenes[saldo.almacen] || `Almacén ${saldo.almacen}`,
-            cantidadComprada: detalleInfo?.Cantidad || null,
-            fechaIngreso: facturaInfo?.FecProc || null,
-            facturaCompra: detalleInfo?.numero || null,
-            faltan: detalleInfo?.Faltan || null,
-            sobran: detalleInfo?.sobran || null,
-            mal: detalleInfo?.mal || null
+            facturas: facturasCompletas // Array con todas las facturas encontradas
         };
         
         console.log(`✅ [SALDO-DETALLE] Información obtenida para ${codproLimpio}`);

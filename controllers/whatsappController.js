@@ -30,8 +30,7 @@ class WhatsAppController {
 Hola ${nombreUsuario},
 ⏰ Este código expira en 1 minuto.
 Si no solicitaste este código, ignora este mensaje.
-
----
+______
 *Sistema Interno Fármacos del Norte*`;
 
       // Llamar al bot de WhatsApp
