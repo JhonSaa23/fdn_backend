@@ -48,6 +48,9 @@ setInterval(cleanExpiredCache, 2 * 60 * 1000);
 // Cargar todos los clientes del vendedor en cache (UNA SOLA VEZ)
 router.get('/clientes/load', async (req, res) => {
   try {
+    // Obtener el parámetro force_reload del query string
+    const forceReload = req.query.force_reload === 'true';
+    
     // Obtener el CodigoInterno del usuario logueado desde el token
     const authHeader = req.headers.authorization;
     
@@ -84,9 +87,9 @@ router.get('/clientes/load', async (req, res) => {
       });
     }
     
-    // Verificar si ya está en cache
+    // Verificar si ya está en cache (solo si NO se fuerza la recarga)
     const cacheKey = `clientes_completos_${codigoInterno}`;
-    if (clientesCompletosCache.has(cacheKey)) {
+    if (!forceReload && clientesCompletosCache.has(cacheKey)) {
       const cached = clientesCompletosCache.get(cacheKey);
       if (Date.now() - cached.timestamp < CLIENTES_CACHE_EXPIRY) {
         console.log(`✅ [CLIENTES-LOAD] Clientes ya cargados en cache: ${cached.data.length}`);
@@ -100,9 +103,16 @@ router.get('/clientes/load', async (req, res) => {
       }
     }
     
+    // Si se fuerza la recarga, limpiar el cache primero
+    if (forceReload) {
+      clientesCompletosCache.delete(cacheKey);
+      console.log(`🗑️ [CLIENTES-LOAD] Cache limpiado por force_reload para vendedor: ${codigoInterno}`);
+    }
+    
     // Cargar desde stored procedure
     const pool = await getConnection();
-    console.log(`🔄 [CLIENTES-LOAD] Cargando clientes para vendedor: ${codigoInterno}`);
+    const loadType = forceReload ? 'RECARGA FORZADA' : 'carga normal';
+    console.log(`🔄 [CLIENTES-LOAD] Cargando clientes (${loadType}) para vendedor: ${codigoInterno}`);
     
     const result = await pool.request()
       .input('CodigoInterno', codigoInterno)
@@ -116,14 +126,15 @@ router.get('/clientes/load', async (req, res) => {
       timestamp: Date.now()
     });
     
-    console.log(`✅ [CLIENTES-LOAD] Clientes cargados exitosamente: ${clientes.length}`);
+    console.log(`✅ [CLIENTES-LOAD] Clientes cargados exitosamente (${loadType}): ${clientes.length}`);
     
     res.json({
       success: true,
       data: clientes,
       total: clientes.length,
       cached: false,
-      message: 'Clientes cargados exitosamente'
+      forceReload: forceReload,
+      message: forceReload ? 'Clientes recargados desde servidor' : 'Clientes cargados exitosamente'
     });
 
   } catch (error) {
@@ -478,11 +489,9 @@ router.get('/tablas-listar/:codigoTabla', async (req, res) => {
     }
     
     // Para otras tablas, usar el stored procedure normal
-    const query = `EXEC sp_tablas_Listar @codigoTabla`;
-    
     const result = await pool.request()
-      .input('codigoTabla', parseInt(codigoTabla))
-      .query(query);
+      .input('codigo', parseInt(codigoTabla))
+      .execute('sp_tablas_Listar');
     
     
     res.json({
@@ -1640,6 +1649,100 @@ router.post('/producto-calculos', async (req, res) => {
   } catch (error) {
     console.error('❌ [UNIFICADO] Error en producto-calculos:', error);
     return res.status(500).json({ success: false, error: 'Error en cálculos unificados', details: error.message });
+  }
+});
+
+// =====================================================
+// CONDICIONES ESPECIALES DE CLIENTES
+// =====================================================
+
+/**
+ * GET /api/pedido_app/cliente-condicion/:ruc
+ * Obtiene las condiciones especiales de un cliente usando sp_tablas_BuscaDescribe
+ * Busca en la tabla tablas con n_codtabla=6 y c_describe=RUC
+ */
+router.get('/cliente-condicion/:ruc', async (req, res) => {
+  try {
+    const { ruc } = req.params;
+    const pool = await getConnection();
+    
+    console.log(`🔍 [CLIENTE-CONDICION] Obteniendo condiciones especiales para RUC: ${ruc}`);
+    
+    // Ejecutar sp_tablas_BuscaDescribe con tabla=6 y describe=RUC
+    const result = await pool.request()
+      .input('tabla', 6)
+      .input('describe', ruc)
+      .execute('sp_tablas_BuscaDescribe');
+    
+    if (result.recordset && result.recordset.length > 0) {
+      const condiciones = result.recordset;
+      console.log(`✅ [CLIENTE-CONDICION] Condiciones encontradas: ${condiciones.length} para RUC: ${ruc}`);
+      
+      // Obtener todas las condiciones normales para hacer el mapeo
+      const pool2 = await getConnection();
+      const resultCondiciones = await pool2.request()
+        .input('codigo', 22)
+        .execute('sp_tablas_Listar');
+      
+      const condicionesNormales = resultCondiciones.recordset;
+      
+      // Formatear las condiciones especiales mapeándolas a condiciones normales
+      const condicionesFormateadas = condiciones.map(condicion => {
+        const conversionCliente = parseFloat(condicion.conversion) || 0;
+        
+        // Buscar la condición normal que tenga n_numero igual a la conversión del cliente
+        const condicionMapeada = condicionesNormales.find(c => 
+          parseInt(c.n_numero) === conversionCliente
+        );
+        
+        if (condicionMapeada) {
+          // Si encuentra coincidencia, usar esa condición normal
+          return {
+            n_codtabla: 6,
+            c_descripcion: `Condición Especial Cliente - ${condicionMapeada.c_describe}`,
+            n_numero: condicionMapeada.n_numero, // Usar el n_numero de la condición normal
+            c_describe: `Condición Especial Cliente - ${condicionMapeada.c_describe}`, // Usar c_describe también
+            conversion: condicionMapeada.conversion, // Usar la conversión de la condición normal
+            Afecto: 0
+          };
+        } else {
+          // Si no encuentra coincidencia, crear una condición especial
+          return {
+            n_codtabla: 6,
+            c_descripcion: `Condición Especial (${condicion.numero}) - Conversión: ${condicion.conversion}%`,
+            n_numero: condicion.numero,
+            c_describe: `Condición Especial (${condicion.numero}) - Conversión: ${condicion.conversion}%`,
+            conversion: conversionCliente,
+            Afecto: 0
+          };
+        }
+      });
+      
+      res.json({
+        success: true,
+        data: condicionesFormateadas,
+        total: condicionesFormateadas.length,
+        ruc: ruc,
+        message: 'Condiciones especiales obtenidas exitosamente'
+      });
+    } else {
+      console.log(`⚠️ [CLIENTE-CONDICION] No se encontraron condiciones especiales para RUC: ${ruc}`);
+      res.json({
+        success: true,
+        data: [],
+        total: 0,
+        ruc: ruc,
+        message: 'No se encontraron condiciones especiales para este cliente'
+      });
+    }
+    
+  } catch (error) {
+    console.error('❌ [CLIENTE-CONDICION] Error obteniendo condiciones especiales:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Error al obtener condiciones especiales del cliente',
+      details: error.message
+    });
   }
 });
 
