@@ -36,6 +36,7 @@ const pedidoAppRoutes = require('./routes/pedido_app');
 const seguimientoAppRoutes = require('./routes/seguimiento_app');
 const clientesDetalleRoutes = require('./routes/clientes_detalle');
 const letrasRoutes = require('./routes/letras');
+const ventasAcFarmaRoutes = require('./routes/ventasAcFarma');
 const { authenticateToken, requireAdmin, optionalAuth } = require('./middleware/auth');
 
 const app = express();
@@ -226,6 +227,9 @@ app.use('/api/seguimiento_app', authenticateToken, seguimientoAppRoutes);
 
 // Ruta para letras de cambio
 app.use('/api/letras', authenticateToken, letrasRoutes);
+
+// Ruta para Ventas AC Farma
+app.use('/api/ventas-ac-farma', authenticateToken, ventasAcFarmaRoutes);
 
 // Ruta general de canje (DEBE IR AL FINAL)
 app.use('/api', authenticateToken, canjeRoutes);
