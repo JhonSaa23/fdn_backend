@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { sql, getConnection } = require('../database');
+const { sql, getConnection, executeQuery } = require('../database');
 
 // Endpoint para consultar productos por código(s)
 router.get('/consulta/:codigos', async (req, res) => {
@@ -239,6 +239,68 @@ router.post('/verificar-saldos', async (req, res) => {
             success: false, 
             message: 'Error al verificar saldos', 
             error: error.message 
+        });
+    }
+});
+
+// Endpoint para actualizar el nombre de un producto
+router.put('/actualizar-nombre', async (req, res) => {
+    try {
+        const { codpro, nombre } = req.body;
+
+        // Validaciones
+        if (!codpro || !nombre) {
+            return res.status(400).json({
+                success: false,
+                message: 'Los campos codpro y nombre son obligatorios'
+            });
+        }
+
+        // Convertir nombre a mayúsculas
+        const nombreMayusculas = nombre.toUpperCase().trim();
+
+        // Verificar que el producto existe
+        const pool = await getConnection();
+        const verificarProducto = await pool.request()
+            .input('codpro', sql.VarChar, codpro)
+            .query('SELECT CodPro, Nombre FROM productos WHERE CodPro = @codpro');
+
+        if (verificarProducto.recordset.length === 0) {
+            return res.status(404).json({
+                success: false,
+                message: 'Producto no encontrado'
+            });
+        }
+
+        // Actualizar el nombre del producto
+        const query = `
+            UPDATE productos 
+            SET Nombre = @nombre 
+            WHERE CodPro = @codpro
+        `;
+
+        await executeQuery(query, {
+            codpro: codpro,
+            nombre: nombreMayusculas
+        });
+
+        // Obtener el producto actualizado
+        const productoActualizado = await pool.request()
+            .input('codpro', sql.VarChar, codpro)
+            .query('SELECT CodPro, Nombre FROM productos WHERE CodPro = @codpro');
+
+        res.json({
+            success: true,
+            message: 'Nombre del producto actualizado correctamente',
+            producto: productoActualizado.recordset[0]
+        });
+
+    } catch (error) {
+        console.error('Error al actualizar nombre del producto:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error al actualizar el nombre del producto',
+            error: error.message
         });
     }
 });
