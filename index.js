@@ -34,6 +34,7 @@ const historialClienteRoutes = require('./routes/historialCliente');
 const infocorpRoutes = require('./routes/infocorp');
 const pedidoAppRoutes = require('./routes/pedido_app');
 const seguimientoAppRoutes = require('./routes/seguimiento_app');
+const clientesDetalleRoutes = require('./routes/clientes_detalle');
 const letrasRoutes = require('./routes/letras');
 const { authenticateToken, requireAdmin, optionalAuth } = require('./middleware/auth');
 
@@ -218,6 +219,7 @@ app.use('/api/infocorp', authenticateToken, infocorpRoutes);
 
 // Ruta para la app móvil de pedidos
 app.use('/api/pedido_app', authenticateToken, pedidoAppRoutes);
+app.use('/api/clientes', authenticateToken, clientesDetalleRoutes);
 
 // Ruta para seguimiento de pedidos
 app.use('/api/seguimiento_app', authenticateToken, seguimientoAppRoutes);

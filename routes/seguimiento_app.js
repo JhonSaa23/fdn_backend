@@ -36,9 +36,9 @@ const estadosPedidos = {
 router.get('/vendedor/pedidos', async (req, res) => {
   try {
     const { estado, limit = 50 } = req.query;
-    const vendedorId = req.user.idus;
+    const vendedorId = req.user.CodigoInterno;  // ← CORREGIDO: usar CodigoInterno
 
-    console.log(`🔍 [SEGUIMIENTO] Obteniendo pedidos para vendedor: ${vendedorId}`);
+    console.log(`🔍 [SEGUIMIENTO] Obteniendo pedidos para vendedor (CodigoInterno): ${vendedorId}`);
     console.log(`🔍 [SEGUIMIENTO] Filtros - estado: ${estado}, limit: ${limit}`);
 
     const pool = await getConnection();
@@ -79,7 +79,7 @@ router.get('/vendedor/pedidos', async (req, res) => {
     `;
 
     const request = pool.request();
-    request.input('vendedorId', sql.Int, vendedorId);
+    request.input('vendedorId', sql.VarChar(10), vendedorId);  // ← CORREGIDO: VarChar porque CodigoInterno es string
 
     // Agregar filtro por estado si se especifica
     if (estado) {
@@ -164,9 +164,9 @@ router.get('/vendedor/pedidos/stream', async (req, res) => {
     console.log(`🌊 [SEGUIMIENTO-SSE] Headers:`, req.headers);
     console.log(`🌊 [SEGUIMIENTO-SSE] User object:`, req.user);
     
-    const vendedorId = req.user.idus;
+    const vendedorId = req.user.CodigoInterno;  // ← CORREGIDO: usar CodigoInterno
     
-    console.log(`🌊 [SEGUIMIENTO-SSE] Iniciando stream en tiempo real para vendedor: ${vendedorId}`);
+    console.log(`🌊 [SEGUIMIENTO-SSE] Iniciando stream en tiempo real para vendedor (CodigoInterno): ${vendedorId}`);
     
     // Configurar headers para SSE
     res.writeHead(200, {
@@ -184,9 +184,18 @@ router.get('/vendedor/pedidos/stream', async (req, res) => {
       timestamp: new Date().toISOString()
     })}\n\n`);
 
+    // Variable para controlar si la conexión está activa
+    let connectionActive = true;
+
     // Función para enviar actualización de pedidos
     const sendPedidosUpdate = async () => {
       try {
+        // Verificar si la conexión sigue activa antes de proceder
+        if (!connectionActive) {
+          console.log(`🌊 [SEGUIMIENTO-SSE] Conexión inactiva, cancelando envío para vendedor: ${vendedorId}`);
+          return;
+        }
+
         const pool = await getConnection();
         
         const query = `
@@ -227,7 +236,7 @@ router.get('/vendedor/pedidos/stream', async (req, res) => {
         `;
 
         const request = pool.request();
-        request.input('vendedorId', sql.Int, vendedorId);
+        request.input('vendedorId', sql.VarChar(10), vendedorId);  // ← CORREGIDO: VarChar porque CodigoInterno es string
         const result = await request.query(query);
 
         // Formatear los datos
@@ -269,15 +278,29 @@ router.get('/vendedor/pedidos/stream', async (req, res) => {
           }
         }));
 
-        // Enviar actualización
-        res.write(`data: ${JSON.stringify({
-          type: 'pedidos_update',
-          data: pedidos,
-          timestamp: new Date().toISOString(),
-          count: pedidos.length
-        })}\n\n`);
+        // Verificar nuevamente si la conexión sigue activa antes de enviar
+        if (!connectionActive) {
+          console.log(`🌊 [SEGUIMIENTO-SSE] Conexión inactiva, cancelando envío de datos para vendedor: ${vendedorId}`);
+          return;
+        }
 
-        console.log(`🌊 [SEGUIMIENTO-SSE] Actualización enviada: ${pedidos.length} pedidos`);
+        // Enviar actualización con manejo de errores
+        try {
+          res.write(`data: ${JSON.stringify({
+            type: 'pedidos_update',
+            data: pedidos,
+            timestamp: new Date().toISOString(),
+            count: pedidos.length
+          })}\n\n`);
+
+          console.log(`🌊 [SEGUIMIENTO-SSE] Actualización enviada: ${pedidos.length} pedidos`);
+        } catch (writeError) {
+          console.log(`🌊 [SEGUIMIENTO-SSE] Error escribiendo datos, conexión probablemente cerrada para vendedor: ${vendedorId}`);
+          connectionActive = false;
+          clearInterval(interval);
+          clearInterval(heartbeat);
+          return;
+        }
         
       } catch (error) {
         console.error('❌ [SEGUIMIENTO-SSE] Error enviando actualización:', error);
@@ -299,21 +322,32 @@ router.get('/vendedor/pedidos/stream', async (req, res) => {
 
     // Enviar heartbeat cada 30 segundos
     const heartbeat = setInterval(() => {
-      res.write(`data: ${JSON.stringify({
-        type: 'heartbeat',
-        timestamp: new Date().toISOString()
-      })}\n\n`);
+      if (connectionActive) {
+        try {
+          res.write(`data: ${JSON.stringify({
+            type: 'heartbeat',
+            timestamp: new Date().toISOString()
+          })}\n\n`);
+        } catch (writeError) {
+          console.log(`🌊 [SEGUIMIENTO-SSE] Error escribiendo heartbeat, conexión cerrada para vendedor: ${vendedorId}`);
+          connectionActive = false;
+          clearInterval(interval);
+          clearInterval(heartbeat);
+        }
+      }
     }, 30000);
 
     // Limpiar al cerrar conexión
     req.on('close', () => {
       console.log(`🌊 [SEGUIMIENTO-SSE] Conexión cerrada para vendedor: ${vendedorId}`);
+      connectionActive = false; // Marcar conexión como inactiva
       clearInterval(interval);
       clearInterval(heartbeat);
     });
 
     req.on('aborted', () => {
       console.log(`🌊 [SEGUIMIENTO-SSE] Conexión abortada para vendedor: ${vendedorId}`);
+      connectionActive = false; // Marcar conexión como inactiva
       clearInterval(interval);
       clearInterval(heartbeat);
     });
@@ -331,9 +365,9 @@ router.get('/vendedor/pedidos/stream', async (req, res) => {
 router.get('/vendedor/pedidos/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const vendedorId = req.user.idus;
+    const vendedorId = req.user.CodigoInterno;  // ← CORREGIDO: usar CodigoInterno
 
-    console.log(`🔍 [SEGUIMIENTO] Obteniendo detalles del pedido: ${id} para vendedor: ${vendedorId}`);
+    console.log(`🔍 [SEGUIMIENTO] Obteniendo detalles del pedido: ${id} para vendedor (CodigoInterno): ${vendedorId}`);
 
     const pool = await getConnection();
     
@@ -374,7 +408,7 @@ router.get('/vendedor/pedidos/:id', async (req, res) => {
 
     const request = pool.request();
     request.input('id', id);
-    request.input('vendedorId', sql.Int, vendedorId);
+    request.input('vendedorId', sql.VarChar(10), vendedorId);  // ← CORREGIDO: VarChar porque CodigoInterno es string
 
     const result = await request.query(query);
 
@@ -496,9 +530,9 @@ router.get('/vendedor/pedidos/:id', async (req, res) => {
 // Obtener estadísticas de pedidos del vendedor
 router.get('/vendedor/estadisticas', async (req, res) => {
   try {
-    const vendedorId = req.user.idus;
+    const vendedorId = req.user.CodigoInterno;  // ← CORREGIDO: usar CodigoInterno
 
-    console.log(`📊 [SEGUIMIENTO] Obteniendo estadísticas para vendedor: ${vendedorId}`);
+    console.log(`📊 [SEGUIMIENTO] Obteniendo estadísticas para vendedor (CodigoInterno): ${vendedorId}`);
 
     const pool = await getConnection();
     
@@ -513,7 +547,7 @@ router.get('/vendedor/estadisticas', async (req, res) => {
     `;
 
     const request = pool.request();
-    request.input('vendedorId', sql.Int, vendedorId);
+    request.input('vendedorId', sql.VarChar(10), vendedorId);  // ← CORREGIDO: VarChar porque CodigoInterno es string
 
     const result = await request.query(query);
 

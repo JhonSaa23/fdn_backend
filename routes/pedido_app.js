@@ -128,6 +128,12 @@ router.get('/clientes/load', async (req, res) => {
     
     console.log(`✅ [CLIENTES-LOAD] Clientes cargados exitosamente (${loadType}): ${clientes.length}`);
     
+    // Log de campos disponibles (incluye CreditoReal)
+    if (clientes.length > 0) {
+      const camposDisponibles = Object.keys(clientes[0]).join(', ');
+      console.log(`📋 [CLIENTES-LOAD] Campos disponibles: ${camposDisponibles}`);
+    }
+    
     res.json({
       success: true,
       data: clientes,
@@ -2092,22 +2098,152 @@ router.post('/crear-pedido', async (req, res) => {
     };
     
     
-    // Ejecutar el stored procedure
-    let result;
+    // ---- BLOQUE: Calcular estado según reglas de crédito (antes de ejecutar el SP) ----
     const fechaActual = new Date(); // Usar objeto Date de JavaScript
     console.log('📅 [CREAR-PEDIDO] Usando fecha actual:', fechaActual.toISOString());
     
-    // 1) Forzar interpretación DMY en la sesión (SOLUCIÓN CLAVE)
-    console.log('🔧 [CREAR-PEDIDO] Configurando DATEFORMAT dmy para la sesión...');
-    await transaction.request().batch("SET DATEFORMAT dmy;");
+    // Asegurarse de usar DATEFORMAT dmy en la sesión
+    await transaction.request().query('SET DATEFORMAT dmy;');
     
-    // 2) Ejecutar el SP en la misma transacción/sesión
-    result = await transaction.request()
+    // 1) Obtener límite y RUC del cliente
+    console.log('🔍 [VALIDACIÓN-ESTADO] Paso 1: Obteniendo datos del cliente (CodClie:', params.cod, ')');
+    const clienteQ = await transaction.request()
+      .input('cod', sql.Int, params.cod)
+      .query('SELECT ISNULL(limite,0) AS limite, Documento FROM Clientes WHERE CodClie = @cod');
+    
+    if (!clienteQ.recordset || clienteQ.recordset.length === 0) {
+      throw new Error('Cliente no encontrado (CodClie=' + params.cod + ')');
+    }
+    const limiteCliente = parseFloat(clienteQ.recordset[0].limite) || 0;
+    const rucCliente = clienteQ.recordset[0].Documento;
+    console.log(`✅ [VALIDACIÓN-ESTADO] Cliente encontrado - RUC: ${rucCliente}, Límite: ${limiteCliente}`);
+    
+    // 2) Obtener creditoReal (en días) del cliente (tabla credito_real)
+    console.log('🔍 [VALIDACIÓN-ESTADO] Paso 2: Obteniendo creditoReal del cliente');
+    const creditoQ = await transaction.request()
+      .input('ruc', sql.VarChar(12), rucCliente)
+      .query('SELECT ISNULL(creditoReal,0) AS creditoReal FROM credito_real WHERE documento = @ruc');
+    const creditoReal = creditoQ.recordset && creditoQ.recordset[0] ? parseInt(creditoQ.recordset[0].creditoReal || 0) : 0;
+    console.log(`✅ [VALIDACIÓN-ESTADO] CreditoReal: ${creditoReal} días`);
+    
+    // 3) Verificar si tiene documentos vencidos con el SP existente
+    console.log('🔍 [VALIDACIÓN-ESTADO] Paso 3: Verificando documentos vencidos (sp_ctacliente_totalcartera)');
+    const cartera = await transaction.request()
+      .input('ruc', sql.VarChar(12), rucCliente)
+      .execute('sp_ctacliente_totalcartera');
+    
+    const totalCartera = (cartera.recordset && cartera.recordset[0]) ? parseFloat(cartera.recordset[0].totalCartera || 0) : 0;
+    console.log(`✅ [VALIDACIÓN-ESTADO] TotalCartera (docs vencidos): ${totalCartera}`);
+    
+    // Si tiene cartera vencida => estado = 1
+    if (totalCartera > 0) {
+      params.estado = 1;
+      console.log(`❌ [VALIDACIÓN-ESTADO] DECISIÓN: Cliente tiene documentos vencidos (${totalCartera}). Forzando estado = 1 (Crédito).`);
+    } else {
+      console.log('✅ [VALIDACIÓN-ESTADO] Cliente SIN documentos vencidos. Continuando validaciones...');
+      // 4) Calcular deuda acumulada en el periodo de creditoReal
+      // Fecha desde = hoy - creditoReal (si creditoReal = 0 => solo hoy)
+      const hoy = new Date();
+      const fechaHasta = new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate()); // midnight hoy
+      const fechaDesdeObj = new Date(fechaHasta);
+      fechaDesdeObj.setDate(fechaDesdeObj.getDate() - creditoReal);
+      // Convertir a 'YYYY-MM-DD' para usar en CONVERT(date,...)
+      const fd = fechaDesdeObj.toISOString().slice(0,10); // 'YYYY-MM-DD'
+      const fh = fechaHasta.toISOString().slice(0,10);
+    
+      console.log(`🔍 [VALIDACIÓN-ESTADO] Paso 4: Calculando deuda acumulada (periodo: ${fd} a ${fh})`);
+      
+      // 4a) Suma de saldos pendientes (CtaCliente)
+      const saldosQ = await transaction.request()
+        .input('cod', sql.Int, params.cod)
+        .query('SELECT ISNULL(SUM(Saldo),0) AS saldos FROM CtaCliente WHERE CodClie = @cod AND Saldo > 0');
+      const saldos = parseFloat(saldosQ.recordset[0].saldos || 0);
+      console.log(`   📊 Saldos pendientes (CtaCliente): ${saldos}`);
+    
+      // 4b) Pedidos pendientes (DoccabPed) con Estado <= 3 y eliminados = 0 dentro del periodo creditoReal
+      const pendientesQ = await transaction.request()
+        .input('cod', sql.Int, params.cod)
+        .input('fd', sql.VarChar(10), fd)
+        .input('fh', sql.VarChar(10), fh)
+        .query(`
+          SELECT ISNULL(SUM(Total),0) AS pendientes
+          FROM DoccabPed
+          WHERE CodClie = @cod
+            AND Estado <= 3
+            AND Eliminado = 0
+            AND CONVERT(date, Fecha) BETWEEN @fd AND @fh
+        `);
+      const pendientes = parseFloat(pendientesQ.recordset[0].pendientes || 0);
+      console.log(`   📊 Pedidos pendientes (DoccabPed): ${pendientes}`);
+    
+      // 4c) Pagos realizados en el mismo periodo (t_ctaCliente)
+      const pagosQ = await transaction.request()
+        .input('cod', sql.Int, params.cod)
+        .input('fd', sql.VarChar(10), fd)
+        .input('fh', sql.VarChar(10), fh)
+        .query(`
+          SELECT ISNULL(SUM(importe),0) AS pagos
+          FROM t_ctaCliente
+          WHERE CodClie = @cod
+            AND CONVERT(date, FechaI) BETWEEN @fd AND @fh
+            AND DAY(FechaP) = DAY(FechaI) AND MONTH(FechaP) = MONTH(FechaI) AND YEAR(FechaP) = YEAR(FechaI)
+        `);
+      const pagos = parseFloat(pagosQ.recordset[0].pagos || 0);
+      console.log(`   📊 Pagos realizados (t_ctaCliente): ${pagos}`);
+    
+      // 5) Deuda acumulada = saldos + pendientes - pagos
+      const deudaAcumulada = (saldos || 0) + (pendientes || 0) - (pagos || 0);
+    
+      // 6) Comparar con el limite incluyendo el total del pedido nuevo
+      const totalNuevo = parseFloat(params.total || 0);
+    
+      console.log(`📊 [VALIDACIÓN-ESTADO] RESUMEN DEUDA:`);
+      console.log(`   - Saldos: ${saldos}`);
+      console.log(`   - Pendientes: ${pendientes}`);
+      console.log(`   - Pagos: ${pagos}`);
+      console.log(`   - Deuda Acumulada: ${deudaAcumulada}`);
+      console.log(`   - Total Pedido Nuevo: ${totalNuevo}`);
+      console.log(`   - Total (Deuda + Nuevo): ${deudaAcumulada + totalNuevo}`);
+      console.log(`   - Límite Cliente: ${limiteCliente}`);
+    
+      if ((deudaAcumulada + totalNuevo) > limiteCliente) {
+        params.estado = 1; // Crédito
+        console.log(`❌ [VALIDACIÓN-ESTADO] DECISIÓN: Excede límite (${deudaAcumulada + totalNuevo} > ${limiteCliente}). Forzando estado = 1 (Crédito).`);
+      } else {
+        console.log(`✅ [VALIDACIÓN-ESTADO] Cliente dentro del límite. Verificando productos...`);
+        
+        // Cliente está OK, ahora verificar productos para decidir entre estado 2 o 3
+        
+        // Verificar si hay al menos un producto con autoriza = 1
+        const tieneProductosParaAutorizar = productos.some(producto => {
+          const autoriza = producto.autoriza || producto.Autoriza || 0;
+          return parseInt(autoriza) === 1;
+        });
+        
+        console.log(`🔍 [VALIDACIÓN-ESTADO] Paso 5: Verificando productos (total: ${productos.length})`);
+        console.log(`   - Productos con autoriza=1: ${tieneProductosParaAutorizar ? 'SÍ' : 'NO'}`);
+        
+        if (tieneProductosParaAutorizar) {
+          params.estado = 2; // Comercial (requiere revisión)
+          console.log(`✅ [VALIDACIÓN-ESTADO] DECISIÓN FINAL: estado = 2 (Comercial) - Requiere revisión comercial.`);
+        } else {
+          params.estado = 3; // Aprobado directo (sin revisión comercial)
+          console.log(`✅ [VALIDACIÓN-ESTADO] DECISIÓN FINAL: estado = 3 (Aprobado) - Aprobado automáticamente.`);
+        }
+      }
+    }
+    
+    // --------------------------------------------------------------------
+    // 7) Ahora ejecutar el SP con params.estado ya decidido
+    // --------------------------------------------------------------------
+    
+    // Ejecutar el SP en la misma transacción/sesión
+    const execResult = await transaction.request()
       .input('nume', sql.VarChar(20), params.nume)
       .input('tipo', sql.Int, params.tipo)
       .input('cod', sql.Int, params.cod)
       .input('dire', sql.VarChar(60), params.dire)
-      .input('fecha', sql.SmallDateTime, fechaActual) // Usar sql.SmallDateTime con objeto Date nativo
+      .input('fecha', sql.SmallDateTime, fechaActual)
       .input('subtotal', sql.Money, params.subtotal)
       .input('igv', sql.Money, params.igv)
       .input('total', sql.Money, params.total)
@@ -2122,6 +2258,39 @@ router.post('/crear-pedido', async (req, res) => {
       .input('urgente', sql.Bit, params.urgente)
       .input('representa', sql.Int, params.representa)
       .execute('sp_PedidosVentas_Insertar');
+    
+    // 8) Verificar lo que quedó realmente en DoccabPed (mismo transaction)
+    const check = await transaction.request()
+      .input('nume_check', sql.VarChar(20), params.nume)
+      .query('SELECT Estado, Fecha, Feccre, Fecpre FROM DoccabPed WHERE Numero = @nume_check');
+    
+    if (!check.recordset || check.recordset.length === 0) {
+      // No insertó nada: hacer rollback y revertir correlativo
+      await transaction.rollback();
+      await _revertirCorrelativo(numeroCorrelativo);
+      return res.status(400).json({
+        success: false,
+        error: 'El pedido no fue insertado en la base (posible rechazo por validación interna).'
+      });
+    }
+    
+    const estadoReal = check.recordset[0].Estado;
+    console.log('✅ Estado guardado en DB:', estadoReal);
+    
+    // Log informativo según el estado (pero NO rechazar)
+    if (estadoReal === 1) {
+      console.log('⚠️ PEDIDO CREADO EN ESTADO = 1 (Crédito) - Requiere revisión del área de créditos');
+    } else if (estadoReal === 2) {
+      console.log('📋 PEDIDO CREADO EN ESTADO = 2 (Comercial) - Requiere revisión comercial');
+    } else if (estadoReal === 3) {
+      console.log('✅ PEDIDO CREADO EN ESTADO = 3 (Aprobado) - Sin revisión, pasa directo');
+    } else {
+      console.log(`ℹ️ PEDIDO CREADO EN ESTADO = ${estadoReal}`);
+    }
+    
+    // Continuar con detalles y commit (independientemente del estado)
+    console.log('➡ Continuando: insertar detalles y registrar auditoría.');
+    // ---- FIN BLOQUE ----
     
     
     // Ahora crear los detalles del pedido
@@ -2138,6 +2307,24 @@ router.post('/crear-pedido', async (req, res) => {
     // Confirmar transacción
     await transaction.commit();
     
+    // Mensaje según el estado final
+    let mensaje = 'Pedido creado exitosamente';
+    let advertencia = null;
+    let estadoDescripcion = `Estado ${estadoReal}`;
+    
+    if (estadoReal === 1) {
+      mensaje = 'Pedido creado en ESTADO CRÉDITO - Requiere revisión';
+      advertencia = 'El pedido quedó en estado CRÉDITO y requiere aprobación del área de créditos debido a: documentos vencidos o exceso del límite de crédito del cliente.';
+      estadoDescripcion = 'Crédito (Requiere Revisión)';
+    } else if (estadoReal === 2) {
+      mensaje = 'Pedido creado en ESTADO COMERCIAL - Requiere revisión';
+      advertencia = 'El pedido contiene productos que requieren autorización comercial antes de continuar.';
+      estadoDescripcion = 'Comercial (Requiere Revisión)';
+    } else if (estadoReal === 3) {
+      mensaje = 'Pedido creado y aprobado automáticamente';
+      advertencia = null;
+      estadoDescripcion = 'Aprobado (Sin Revisión)';
+    }
     
     res.json({
       success: true,
@@ -2148,10 +2335,13 @@ router.post('/crear-pedido', async (req, res) => {
         subtotal: subtotal,
         igv: igvMonto,
         total: total,
-        estado: params.estado,
+        estado: estadoReal, // Estado real guardado en la BD
+        estadoCalculado: params.estado, // Estado que calculamos
         fecha: new Date().toISOString()
       },
-      message: 'Pedido creado exitosamente'
+      message: mensaje,
+      advertencia: advertencia,
+      estadoDescripcion: estadoDescripcion
     });
     
   } catch (error) {
