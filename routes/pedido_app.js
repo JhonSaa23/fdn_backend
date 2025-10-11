@@ -2576,4 +2576,8 @@ async function _revertirCorrelativo(numeroCorrelativo) {
 }
 
 
-module.exports = router;
+module.exports = {
+  router,
+  clientesCompletosCache,
+  CLIENTES_CACHE_EXPIRY
+};

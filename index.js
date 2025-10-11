@@ -32,8 +32,9 @@ const authRoutes = require('./routes/auth');
 const vistasRoutes = require('./routes/vistas');
 const historialClienteRoutes = require('./routes/historialCliente');
 const infocorpRoutes = require('./routes/infocorp');
-const pedidoAppRoutes = require('./routes/pedido_app');
+const { router: pedidoAppRoutes } = require('./routes/pedido_app');
 const seguimientoAppRoutes = require('./routes/seguimiento_app');
+const productosAppRoutes = require('./routes/productos_app');
 const clientesDetalleRoutes = require('./routes/clientes_detalle');
 const letrasRoutes = require('./routes/letras');
 const ventasAcFarmaRoutes = require('./routes/ventasAcFarma');
@@ -224,6 +225,9 @@ app.use('/api/clientes', authenticateToken, clientesDetalleRoutes);
 
 // Ruta para seguimiento de pedidos
 app.use('/api/seguimiento_app', authenticateToken, seguimientoAppRoutes);
+
+// Ruta para productos en tiempo real
+app.use('/api/productos_app', authenticateToken, productosAppRoutes);
 
 // Ruta para letras de cambio
 app.use('/api/letras', authenticateToken, letrasRoutes);

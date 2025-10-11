@@ -13,6 +13,9 @@ const {
 const { JWT_SECRET } = require('../middleware/auth');
 const router = express.Router();
 
+// Importar caches desde pedido_app.js
+const { clientesCompletosCache, CLIENTES_CACHE_EXPIRY } = require('./pedido_app');
+
 // =====================================================
 // ENDPOINT: Validar DNI/RUC y obtener datos del usuario
 // =====================================================
@@ -369,6 +372,39 @@ router.post('/verificar-codigo', checkFailedAttempts, async (req, res) => {
     const token = jwt.sign(tokenPayload, JWT_SECRET, {
       expiresIn: mantenerSesion ? '7d' : '24h' // 7 días si mantiene sesión, 24 horas si no
     });
+
+    // Cargar automáticamente datos en cache después del login exitoso
+    try {
+      console.log(`🚀 [LOGIN-CACHE] Iniciando carga automática de cache para vendedor: ${usuario.CodigoInterno}`);
+      
+      // 1. Cargar productos usando Jhon_Producto_BasicoOptimizado
+      console.log(`📦 [LOGIN-CACHE] Cargando productos...`);
+      await pool.request()
+        .input('CodigoInterno', sql.VarChar(10), usuario.CodigoInterno)
+        .execute('Jhon_Producto_BasicoOptimizado');
+      console.log(`✅ [LOGIN-CACHE] Productos cargados exitosamente`);
+      
+      // 2. Cargar clientes usando ClientesPorVendedor
+      console.log(`👥 [LOGIN-CACHE] Cargando clientes...`);
+      const clientesResult = await pool.request()
+        .input('CodigoInterno', sql.VarChar(10), usuario.CodigoInterno)
+        .execute('ClientesPorVendedor');
+      
+      // Guardar clientes en cache
+      const cacheKey = `clientes_completos_${usuario.CodigoInterno}`;
+      clientesCompletosCache.set(cacheKey, {
+        data: clientesResult.recordset,
+        timestamp: Date.now()
+      });
+      console.log(`✅ [LOGIN-CACHE] Clientes cargados y guardados en cache: ${clientesResult.recordset.length}`);
+      
+      console.log(`🎉 [LOGIN-CACHE] Carga automática completada para vendedor: ${usuario.CodigoInterno}`);
+      
+    } catch (cacheError) {
+      // No lanzar error para no afectar el login, solo loguear
+      console.error('⚠️ [LOGIN-CACHE] Error en carga automática de cache:', cacheError.message);
+      console.log(`🔧 [LOGIN-CACHE] El login continúa normalmente, los datos se cargarán cuando se necesiten`);
+    }
 
     res.json({
       success: true,
