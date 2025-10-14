@@ -160,13 +160,7 @@ router.get('/vendedor/pedidos', async (req, res) => {
 // Server-Sent Events para tiempo real
 router.get('/vendedor/pedidos/stream', async (req, res) => {
   try {
-    console.log(`🌊 [SEGUIMIENTO-SSE] ✅ RUTA ACCEDIDA - /vendedor/pedidos/stream`);
-    console.log(`🌊 [SEGUIMIENTO-SSE] Headers:`, req.headers);
-    console.log(`🌊 [SEGUIMIENTO-SSE] User object:`, req.user);
-    
-    const vendedorId = req.user.CodigoInterno;  // ← CORREGIDO: usar CodigoInterno
-    
-    console.log(`🌊 [SEGUIMIENTO-SSE] Iniciando stream en tiempo real para vendedor (CodigoInterno): ${vendedorId}`);
+    const vendedorId = req.user.CodigoInterno;
     
     // Configurar headers para SSE
     res.writeHead(200, {
@@ -286,14 +280,14 @@ router.get('/vendedor/pedidos/stream', async (req, res) => {
 
         // Enviar actualización con manejo de errores
         try {
-          res.write(`data: ${JSON.stringify({
-            type: 'pedidos_update',
-            data: pedidos,
-            timestamp: new Date().toISOString(),
-            count: pedidos.length
-          })}\n\n`);
+        res.write(`data: ${JSON.stringify({
+          type: 'pedidos_update',
+          data: pedidos,
+          timestamp: new Date().toISOString(),
+          count: pedidos.length
+        })}\n\n`);
+        console.log('📦 Seguimiento actualizado');
 
-          console.log(`🌊 [SEGUIMIENTO-SSE] Actualización enviada: ${pedidos.length} pedidos`);
         } catch (writeError) {
           console.log(`🌊 [SEGUIMIENTO-SSE] Error escribiendo datos, conexión probablemente cerrada para vendedor: ${vendedorId}`);
           connectionActive = false;
@@ -315,7 +309,7 @@ router.get('/vendedor/pedidos/stream', async (req, res) => {
     // Enviar actualización inicial
     await sendPedidosUpdate();
 
-    // Enviar actualizaciones cada 5 segundos
+    // Enviar actualizaciones cada 2 segundos
     const interval = setInterval(async () => {
       await sendPedidosUpdate();
     }, 5000);
@@ -339,14 +333,14 @@ router.get('/vendedor/pedidos/stream', async (req, res) => {
 
     // Limpiar al cerrar conexión
     req.on('close', () => {
-      console.log(`🌊 [SEGUIMIENTO-SSE] Conexión cerrada para vendedor: ${vendedorId}`);
+      console.log('👋 Usuario salió de vista de seguimiento');
       connectionActive = false; // Marcar conexión como inactiva
       clearInterval(interval);
       clearInterval(heartbeat);
     });
 
     req.on('aborted', () => {
-      console.log(`🌊 [SEGUIMIENTO-SSE] Conexión abortada para vendedor: ${vendedorId}`);
+      console.log('👋 Usuario salió de vista de seguimiento');
       connectionActive = false; // Marcar conexión como inactiva
       clearInterval(interval);
       clearInterval(heartbeat);

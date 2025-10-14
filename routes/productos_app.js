@@ -84,13 +84,8 @@ router.get('/vendedor/productos', async (req, res) => {
 // Server-Sent Events para tiempo real de productos
 router.get('/vendedor/productos/stream', async (req, res) => {
   try {
-    console.log(`🌊 [PRODUCTOS-SSE] ✅ RUTA ACCEDIDA - /vendedor/productos/stream`);
-    console.log(`🌊 [PRODUCTOS-SSE] Headers:`, req.headers);
-    console.log(`🌊 [PRODUCTOS-SSE] User object:`, req.user);
-    
+    console.log('🔗 [PRODUCTOS-SSE] Conexión recibida al endpoint de productos');
     const vendedorId = req.user.CodigoInterno;
-    
-    console.log(`🌊 [PRODUCTOS-SSE] Iniciando stream en tiempo real para vendedor (CodigoInterno): ${vendedorId}`);
     
     // Configurar headers para SSE
     res.writeHead(200, {
@@ -119,7 +114,6 @@ router.get('/vendedor/productos/stream', async (req, res) => {
       try {
         // Verificar si la conexión sigue activa antes de proceder
         if (!connectionActive) {
-          console.log(`🌊 [PRODUCTOS-SSE] Conexión inactiva, cancelando envío para vendedor: ${vendedorId}`);
           return;
         }
 
@@ -128,9 +122,6 @@ router.get('/vendedor/productos/stream', async (req, res) => {
         // Ejecutar el stored procedure Jhon_Producto_BasicoOptimizado
         const result = await pool.request()
           .execute('Jhon_Producto_BasicoOptimizado');
-
-        console.log(`🌊 [PRODUCTOS-SSE] Resultado del SP:`, result);
-        console.log(`🌊 [PRODUCTOS-SSE] Recordset:`, result.recordset);
 
         // Validar que el resultado no sea null
         if (!result || !result.recordset) {
@@ -146,11 +137,8 @@ router.get('/vendedor/productos/stream', async (req, res) => {
           throw new Error('El stored procedure no devolvió un array de productos');
         }
 
-        console.log(`🌊 [PRODUCTOS-SSE] Productos obtenidos: ${productos.length}`);
-
         // Verificar nuevamente si la conexión sigue activa antes de enviar
         if (!connectionActive) {
-          console.log(`🌊 [PRODUCTOS-SSE] Conexión inactiva, cancelando envío de datos para vendedor: ${vendedorId}`);
           return;
         }
 
@@ -163,14 +151,10 @@ router.get('/vendedor/productos/stream', async (req, res) => {
             timestamp: new Date().toISOString(),
             count: productos.length
           };
-
-          console.log(`🌊 [PRODUCTOS-SSE] Enviando datos:`, JSON.stringify(updateData).substring(0, 200) + '...');
-
           res.write(`data: ${JSON.stringify(updateData)}\n\n`);
+          console.log('📦 Productos actualizados');
 
-          console.log(`🌊 [PRODUCTOS-SSE] Actualización enviada: ${productos.length} productos`);
         } catch (writeError) {
-          console.log(`🌊 [PRODUCTOS-SSE] Error escribiendo datos, conexión probablemente cerrada para vendedor: ${vendedorId}`);
           connectionActive = false;
           clearInterval(interval);
           clearInterval(heartbeat);
@@ -191,7 +175,6 @@ router.get('/vendedor/productos/stream', async (req, res) => {
               vendedorId: vendedorId
             })}\n\n`);
           } catch (writeError) {
-            console.log(`🌊 [PRODUCTOS-SSE] Error escribiendo mensaje de error, conexión cerrada para vendedor: ${vendedorId}`);
             connectionActive = false;
             clearInterval(interval);
             clearInterval(heartbeat);
@@ -203,12 +186,12 @@ router.get('/vendedor/productos/stream', async (req, res) => {
     // Enviar actualización inicial
     await sendProductosUpdate();
 
-    // Configurar intervalo para actualizaciones periódicas (cada 10 segundos)
+    // Configurar intervalo para actualizaciones periódicas (cada 3 segundos)
     interval = setInterval(async () => {
       if (connectionActive) {
         await sendProductosUpdate();
       }
-    }, 10000);
+    }, 5000);
 
     // Heartbeat cada 30 segundos para mantener la conexión viva
     heartbeat = setInterval(() => {
@@ -219,7 +202,6 @@ router.get('/vendedor/productos/stream', async (req, res) => {
             timestamp: new Date().toISOString()
           })}\n\n`);
         } catch (writeError) {
-          console.log(`🌊 [PRODUCTOS-SSE] Error escribiendo heartbeat, conexión cerrada para vendedor: ${vendedorId}`);
           connectionActive = false;
           clearInterval(interval);
           clearInterval(heartbeat);
@@ -229,14 +211,14 @@ router.get('/vendedor/productos/stream', async (req, res) => {
 
     // Limpiar al cerrar conexión
     req.on('close', () => {
-      console.log(`🌊 [PRODUCTOS-SSE] Conexión cerrada para vendedor: ${vendedorId}`);
+      console.log('👋 Usuario salió de vista de productos');
       connectionActive = false; // Marcar conexión como inactiva
       clearInterval(interval);
       clearInterval(heartbeat);
     });
 
     req.on('aborted', () => {
-      console.log(`🌊 [PRODUCTOS-SSE] Conexión abortada para vendedor: ${vendedorId}`);
+      console.log('👋 Usuario salió de vista de productos');
       connectionActive = false; // Marcar conexión como inactiva
       clearInterval(interval);
       clearInterval(heartbeat);
