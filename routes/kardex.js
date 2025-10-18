@@ -226,9 +226,9 @@ router.post('/ejecutar-procedimiento', async (req, res) => {
     return res.status(400).json({ error: 'fechaInicio debe ser anterior o igual a fechaFin' });
   }
 
-  // Formatear las fechas a 'YYYY-MM-DD' para incrustarlas directamente en la consulta SQL
-  const formattedFechaInicio = d1.toISOString().slice(0, 10); // "YYYY-MM-DD"
-  const formattedFechaFin = d2.toISOString().slice(0, 10);   // "YYYY-MM-DD"
+  // Formatear las fechas para SQL Server smalldatetime (formato DD/MM/YYYY)
+  const formattedFechaInicio = `${d1.getDate().toString().padStart(2, '0')}/${(d1.getMonth() + 1).toString().padStart(2, '0')}/${d1.getFullYear()}`;
+  const formattedFechaFin = `${d2.getDate().toString().padStart(2, '0')}/${(d2.getMonth() + 1).toString().padStart(2, '0')}/${d2.getFullYear()}`;
 
   // 4) Preparar valores al ancho fijo del SP
   const codFixed  = codigo.toString().trim().padEnd(10, ' ');
@@ -245,23 +245,37 @@ router.post('/ejecutar-procedimiento', async (req, res) => {
       // Configurar DATEFORMAT dmy en la misma transacción
       await transaction.request().batch("SET DATEFORMAT dmy;");
       
-      console.log('Ejecutando sp_kardex con:', { codFixed, loteFixed, formattedFechaInicio, formattedFechaFin });
+      console.log('Ejecutando sp_kardex con:', { 
+        codFixed, 
+        loteFixed, 
+        formattedFechaInicio, 
+        formattedFechaFin,
+        fechaInicioOriginal: fechaInicio,
+        fechaFinOriginal: fechaFin,
+        d1: d1.toISOString(),
+        d2: d2.toISOString()
+      });
 
-      // **** CAMBIO CLAVE AQUÍ: Construir la consulta SQL con las fechas como literales ****
-      // Esto evita que el driver mssql intente inferir el tipo o formato para los parámetros de fecha,
-      // y en su lugar, SQL Server los interpretará directamente como cadenas de fecha válidas.
-      const spExecutionQuery = `
-        EXEC dbo.sp_kardex
-          @c = '${codFixed}',
-          @lote = '${loteFixed}',
-          @fec1 = '${formattedFechaInicio}',
-          @fec2 = '${formattedFechaFin}';
+      // Verificar si el stored procedure existe antes de ejecutarlo
+      const checkSPQuery = `
+        SELECT COUNT(*) as sp_exists 
+        FROM sys.procedures 
+        WHERE name = 'sp_kardex'
       `;
+      
+      const spCheckResult = await transaction.request().query(checkSPQuery);
+      if (spCheckResult.recordset[0].sp_exists === 0) {
+        throw new Error('El stored procedure sp_kardex no existe en la base de datos');
+      }
 
-      // 5) Ejecutar el SP. Nota: No pasamos el segundo objeto de parámetros para las fechas,
-      // ya que están incrustadas directamente en la cadena de consulta.
-      // Solo pasamos los parámetros de cadena que no son fechas.
-      await transaction.request().query(spExecutionQuery);
+      // Ejecutar el SP con parámetros tipados para evitar problemas de conversión
+      const request = transaction.request();
+      request.input('c', sql.VarChar(10), codFixed);
+      request.input('lote', sql.VarChar(15), loteFixed);
+      request.input('fec1', sql.SmallDateTime, d1); // Usar el objeto Date directamente
+      request.input('fec2', sql.SmallDateTime, d2); // Usar el objeto Date directamente
+      
+      await request.execute('sp_kardex');
 
       // 6) Leer y devolver resultados de Kardex
       const result = await transaction.request().query(
@@ -300,13 +314,104 @@ router.post('/ejecutar-procedimiento', async (req, res) => {
     }
   } catch (error) {
     console.error('Error al ejecutar sp_kardex:', error);
+    console.error('Stack trace:', error.stack);
+    
     let errorMessage = 'Error interno al ejecutar sp_kardex';
-    if (error.originalError && error.originalError.info && error.originalError.info.message) {
-      errorMessage = `Error de la base de datos: ${error.originalError.info.message}`;
+    let errorDetails = error.message;
+    
+    // Manejar diferentes tipos de errores de SQL Server
+    if (error.originalError) {
+      if (error.originalError.info && error.originalError.info.message) {
+        errorMessage = `Error de la base de datos: ${error.originalError.info.message}`;
+        errorDetails = error.originalError.info.message;
+      } else if (error.originalError.message) {
+        errorMessage = `Error de SQL Server: ${error.originalError.message}`;
+        errorDetails = error.originalError.message;
+      }
+    } else if (error.code) {
+      // Errores de conexión
+      switch (error.code) {
+        case 'ECONNCLOSED':
+          errorMessage = 'Conexión a la base de datos perdida';
+          break;
+        case 'ECONNRESET':
+          errorMessage = 'Conexión a la base de datos reiniciada';
+          break;
+        case 'ETIMEOUT':
+          errorMessage = 'Timeout en la conexión a la base de datos';
+          break;
+        default:
+          errorMessage = `Error de conexión: ${error.code}`;
+      }
     } else if (error.message) {
       errorMessage = `Error: ${error.message}`;
     }
-    return res.status(500).json({ error: errorMessage, details: error.message });
+    
+    return res.status(500).json({ 
+      error: errorMessage, 
+      details: errorDetails,
+      code: error.code || 'UNKNOWN',
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+/**
+ * GET /diagnostico-sp
+ * Diagnostica si el stored procedure sp_kardex existe y muestra información sobre él
+ */
+router.get('/diagnostico-sp', async (req, res) => {
+  try {
+    const pool = await getConnection();
+    
+    // Verificar si el SP existe
+    const checkSPQuery = `
+      SELECT 
+        p.name as procedure_name,
+        p.create_date,
+        p.modify_date,
+        p.is_auto_executed,
+        p.is_execution_replicated
+      FROM sys.procedures p
+      WHERE p.name = 'sp_kardex'
+    `;
+    
+    const spResult = await pool.request().query(checkSPQuery);
+    
+    // Obtener parámetros del SP si existe
+    let parameters = [];
+    if (spResult.recordset.length > 0) {
+      const paramsQuery = `
+        SELECT 
+          p.parameter_name,
+          p.data_type,
+          p.max_length,
+          p.is_output
+        FROM INFORMATION_SCHEMA.PARAMETERS p
+        WHERE p.specific_name = 'sp_kardex'
+        ORDER BY p.ordinal_position
+      `;
+      
+      const paramsResult = await pool.request().query(paramsQuery);
+      parameters = paramsResult.recordset;
+    }
+    
+    res.json({
+      success: true,
+      sp_exists: spResult.recordset.length > 0,
+      sp_info: spResult.recordset.length > 0 ? spResult.recordset[0] : null,
+      parameters: parameters,
+      message: spResult.recordset.length > 0 ? 
+        'Stored procedure sp_kardex encontrado' : 
+        'Stored procedure sp_kardex NO encontrado'
+    });
+    
+  } catch (error) {
+    console.error('Error en diagnóstico del SP:', error);
+    res.status(500).json({ 
+      error: 'Error al diagnosticar stored procedure',
+      details: error.message 
+    });
   }
 });
 
