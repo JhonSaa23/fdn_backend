@@ -64,7 +64,8 @@ router.post('/validar-documento', async (req, res) => {
           Rol,
           Activo,
           Bloqueado,
-          IntentosFallidos
+          IntentosFallidos,
+          PasswordHash
         FROM UsersSystems 
         WHERE DNI_RUC = @documento 
           AND TipoUsuario = @tipoUsuario
@@ -88,6 +89,9 @@ router.post('/validar-documento', async (req, res) => {
       });
     }
 
+    // Verificar si tiene contraseña
+    const tienePassword = usuario.PasswordHash && usuario.PasswordHash.trim() !== '';
+
     // Respuesta exitosa
     res.json({
       success: true,
@@ -101,7 +105,8 @@ router.post('/validar-documento', async (req, res) => {
         email: usuario.Email,
         tipoUsuario: usuario.TipoUsuario,
         rol: usuario.Rol,
-        intentosFallidos: usuario.IntentosFallidos
+        intentosFallidos: usuario.IntentosFallidos,
+        tienePassword: tienePassword
       }
     });
 

@@ -29,6 +29,7 @@ const juegoRoutes = require('./routes/juegoRoutes');
 const vendedoresRoutes = require('./routes/vendedores');
 const usersBotRoutes = require('./routes/usersBot');
 const authRoutes = require('./routes/auth');
+const authPasswordRoutes = require('./routes/auth-password');
 const vistasRoutes = require('./routes/vistas');
 const historialClienteRoutes = require('./routes/historialCliente');
 const infocorpRoutes = require('./routes/infocorp');
@@ -170,6 +171,7 @@ if (!fs.existsSync(uploadDir)) {
 
 // Rutas de autenticación (públicas) - DEBEN IR PRIMERO
 app.use('/api/auth', authRoutes);
+app.use('/api/auth-password', authPasswordRoutes);
 
 // Ruta pública para el bot (sin autenticación)
 app.get('/api/bot/users/active', async (req, res) => {
