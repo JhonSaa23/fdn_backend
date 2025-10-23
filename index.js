@@ -39,6 +39,7 @@ const productosAppRoutes = require('./routes/productos_app');
 const clientesDetalleRoutes = require('./routes/clientes_detalle');
 const letrasRoutes = require('./routes/letras');
 const ventasAcFarmaRoutes = require('./routes/ventasAcFarma');
+const ruperoRoutes = require('./routes/rupero');
 const { authenticateToken, requireAdmin, optionalAuth } = require('./middleware/auth');
 
 const app = express();
@@ -236,6 +237,9 @@ app.use('/api/letras', authenticateToken, letrasRoutes);
 
 // Ruta para Ventas AC Farma
 app.use('/api/ventas-ac-farma', authenticateToken, ventasAcFarmaRoutes);
+
+// Ruta para Rupero
+app.use('/api/rupero', authenticateToken, ruperoRoutes);
 
 // Ruta general de canje (DEBE IR AL FINAL)
 app.use('/api', authenticateToken, canjeRoutes);
