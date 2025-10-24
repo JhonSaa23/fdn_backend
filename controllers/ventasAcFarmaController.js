@@ -225,7 +225,8 @@ exports.exportarVentasAcFarmaExcel = async (req, res) => {
             { header: 'Desc. 3', key: 'Descuento3', width: 10 },
             { header: 'Total', key: 'Total', width: 12 },
             { header: 'Línea', key: 'Linea', width: 25 },
-            { header: 'Tipo Doc.', key: 'TipoDoc', width: 10 }
+            { header: 'Tipo Doc.', key: 'TipoDoc', width: 10 },
+            { header: 'Nro Pedido', key: 'NroPedido', width: 15 }
         ];
 
         // Estilo del encabezado
@@ -261,7 +262,8 @@ exports.exportarVentasAcFarmaExcel = async (req, res) => {
                 Descuento3: row.Descuento3,
                 Total: row.Total,
                 Linea: row.Linea,
-                TipoDoc: row.TipoDoc
+                TipoDoc: row.TipoDoc,
+                NroPedido: row.NroPedido
             };
             worksheet.addRow(rowData);
         });
