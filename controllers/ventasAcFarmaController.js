@@ -47,7 +47,8 @@ exports.consultarVentasAcFarma = async (req, res) => {
                 CASE 
                     WHEN doccab.tipo = 1 THEN 'Fa'
                     ELSE 'Bo'
-                END AS TipoDoc
+                END AS TipoDoc,
+                Doccab.NroPedido
             FROM docdet
             INNER JOIN doccab ON doccab.numero = docdet.numero
             INNER JOIN clientes ON clientes.Codclie = doccab.Codclie
@@ -150,7 +151,8 @@ exports.exportarVentasAcFarmaExcel = async (req, res) => {
                 CASE 
                     WHEN doccab.tipo = 1 THEN 'Fa'
                     ELSE 'Bo'
-                END AS TipoDoc
+                END AS TipoDoc,
+                Doccab.NroPedido AS NroPedido
             FROM docdet
             INNER JOIN doccab ON doccab.numero = docdet.numero
             INNER JOIN clientes ON clientes.Codclie = doccab.Codclie
