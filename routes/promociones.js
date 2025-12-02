@@ -165,6 +165,7 @@ router.get('/productos', async (req, res) => {
         RTRIM(Nombre) as nombre,
         RTRIM(CodLab) as codLab
       FROM Productos WITH(NOLOCK)
+      where Eliminado = '0'
       ORDER BY CodPro
     `;
 
