@@ -19,6 +19,7 @@ router.get('/', async (req, res) => {
         s.codpro,
         p.Codlab AS CodMifSap,
         p.Nombre AS NombreProducto,
+        p.CosReal AS Precio,
         s.almacen,
         s.lote,
         s.vencimiento,
@@ -80,6 +81,7 @@ router.get('/export', async (req, res) => {
         s.codpro,
         p.Codlab AS CodMifSap,
         p.Nombre AS NombreProducto,
+        p.CosReal AS Precio,
         s.almacen,
         s.lote,
         s.vencimiento,
@@ -118,6 +120,7 @@ router.get('/export', async (req, res) => {
       { header: 'CodPro', key: 'codpro', width: 12 },
       { header: 'CÓD_MIF (SAP)', key: 'codMifSap', width: 15 },
       { header: 'Nombre', key: 'NombreProducto', width: 40 },
+      { header: 'Precio', key: 'precio', width: 12 },
       { header: 'Almacen', key: 'almacen', width: 10 },
       { header: 'Lote', key: 'lote', width: 18 },
       { header: 'Vencimiento', key: 'vencimiento', width: 20 },
@@ -134,6 +137,7 @@ router.get('/export', async (req, res) => {
         codpro: row.codpro ? row.codpro.toString() : '',
         codMifSap: row.CodMifSap || '',
         NombreProducto: row.NombreProducto || '',
+        precio: row.Precio || 0,
         almacen: row.almacen || '',
         lote: row.lote || '',
         vencimiento: row.vencimiento ? new Date(row.vencimiento) : '',
@@ -153,10 +157,13 @@ router.get('/export', async (req, res) => {
       cell.numFmt = '@';
     });
 
+    // Formatear columna de precio como número (sin símbolo de moneda)
+    worksheet.getColumn('precio').numFmt = '#,##0.00';
+
     // Agregar autofiltro
     worksheet.autoFilter = {
       from: 'A1',
-      to: 'K1'
+      to: 'L1'
     };
 
     // Aplicar formato de cabecera
